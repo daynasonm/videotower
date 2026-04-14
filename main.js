@@ -11,8 +11,8 @@ const CONFIG = {
   slabGap:    0.002,
 
   rotation: {
-    baseSpeed: 0.08,       // rad/s, slow continuous drift
-    waveAmplitude: 0.48,   // ~27°, stays inside iframe-safe 30° envelope
+    baseSpeed: 0.08,
+    waveAmplitude: 0.48,
     waveLength: 22,
     waveSpeed: 1.0,
   },
@@ -20,35 +20,86 @@ const CONFIG = {
   camera: {
     distance: 2.3,
     fov: 45,
-    parallaxX: 0.6,        // subtle parallax now; head drives tower rotation
+    parallaxX: 0.6,
     parallaxY: 0.8,
     smoothing: 0.09,
   },
 
-  // Head drives tower Y rotation. Tilt right → tower spins right (and vice versa).
-  // This is ADDITIVE to baseSpeed drift.
   headRotation: {
-    influence: 1.6,        // radians of tower rotation per unit head offset
+    influence: 1.6,
   },
 
-  // ---------- YouTube Data API ----------
-  // Leave apiKey empty to use local video pool (./videos/N.mp4).
-  // Set apiKey + query to populate the tower with YouTube thumbnails.
-  // Restrict your API key to your domain in Google Cloud Console before shipping.
-  youtube: {
-    apiKey:  '',                   // ← paste your key here to enable
-    query:   'contemporary art installation',
-    count:   50,                   // thumbnails to fetch (max 50 per request)
-    swapIntervalMs: 5000,          // mean interval between per-face swaps
-    swapJitterMs:   4000,          // ± randomization so swaps don't sync
+  // If true, show a fatal error instead of silently falling back to local.
+  // Keeps you honest: you'll SEE when NASA fails.
+  requireNASA: true,
+
+  // ---------- NASA Image & Video Library ----------
+  // Hybrid pool: images for speed (fill the tower instantly), videos for
+  // motion. Browsers cap at ~6-8 concurrent video decodes, so we fetch a
+  // small video pool that paints many panels (same stream on multiple
+  // panels is free — GPU uploads each frame once).
+  nasa: {
+    queries: [
+      'carina nebula',
+      'orion nebula',
+      'crab nebula',
+      'helix nebula',
+      'butterfly nebula',
+      'eagle nebula',
+      'lagoon nebula',
+      'ring nebula',
+      'andromeda galaxy',
+      'whirlpool galaxy',
+      'sombrero galaxy',
+      'pillars of creation',
+      'hubble deep field',
+      'webb telescope first images',
+      'black hole',
+    ],
+    imageItemsPerQuery: 8,    // 15 × 8 = ~120 unique images (instant tower)
+    videoQueries: [           // focused subset for video fetching
+      'hubble nebula',
+      'carina nebula',
+      'james webb galaxy',
+      'black hole simulation',
+      'solar dynamics',
+      'pillars of creation',
+    ],
+    videoItemsPerQuery: 2,    // 6 × 2 = ~12 videos (below browser decode cap)
   },
 
-  // Local video fallback if YouTube is disabled or fails
+  swap: {
+    minDelayMs: 1500,
+    maxDelayMs: 5000,
+    videoWeight: 0.5,         // 50% chance each swap lands on a video
+  },
+
+  // Used only if requireNASA is false
   videoPool: [
     './videos/1.mp4', './videos/2.mp4', './videos/3.mp4', './videos/4.mp4',
     './videos/5.mp4', './videos/6.mp4', './videos/7.mp4', './videos/8.mp4',
   ],
 };
+
+// =============================================================
+// LOADER + FATAL UI
+// =============================================================
+const loaderEl = document.getElementById('loader');
+const loaderLog = document.getElementById('loader-log');
+const fatalEl = document.getElementById('fatal');
+
+function loaderShow() { loaderEl.classList.add('show'); }
+function loaderHide() { loaderEl.classList.remove('show'); }
+function loaderLine(msg) {
+  const t = new Date().toISOString().slice(11, 19);
+  loaderLog.textContent += `[${t}] ${msg}\n`;
+  console.log(`[loader] ${msg}`);
+}
+function fatal(title, details) {
+  loaderHide();
+  fatalEl.innerHTML = `<h2>${title}</h2><div>${details}</div>`;
+  fatalEl.classList.add('show');
+}
 
 // =============================================================
 // STATUS HUD
@@ -72,7 +123,7 @@ const status = {
 status.render();
 
 // =============================================================
-// WIRE BUTTON IMMEDIATELY
+// ENTRY
 // =============================================================
 const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('start');
@@ -93,7 +144,6 @@ startBtn.addEventListener('click', () => {
 // MAIN
 // =============================================================
 async function run() {
-  // ---------- three setup ----------
   const canvas = document.getElementById('scene');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -122,42 +172,48 @@ async function run() {
   });
 
   // ---------- texture pool ----------
-  // Returns an array of THREE.Texture. Either YouTube thumbnails or video textures.
-  const useYouTube = !!CONFIG.youtube.apiKey;
-  let textures = [];
-  let poolIsVideo = false;
+  status.source = 'nasa';
+  status.render();
+  loaderShow();
+  loaderLine(`fetching NASA images (fast) + videos (background)...`);
 
-  if (useYouTube) {
-    status.source = 'youtube';
-    status.render();
-    try {
-      textures = await loadYouTubeThumbnails();
-      status.total = textures.length;
-      status.assets = textures.length;
-      status.render();
-    } catch (e) {
-      console.error('YouTube load failed, falling back to local videos:', e);
-      status.source = 'local (fallback)';
-      status.error = `youtube: ${e.message}`;
-      status.render();
-      textures = buildVideoTextures();
-      poolIsVideo = true;
+  let images;
+  try {
+    images = await loadNASAImages();
+    if (images.length === 0) throw new Error('no NASA images resolved');
+    loaderLine(`✓ ${images.length} images ready, building tower`);
+    loaderHide();
+  } catch (e) {
+    console.error('NASA load failed:', e);
+    if (CONFIG.requireNASA) {
+      fatal('NASA load failed', `${e.message}\n\nOpen DevTools Network tab, refresh, and look for requests to images-api.nasa.gov.\nIf they're blocked (red), it's a CORS / extension / network issue.\nTry: incognito window with extensions disabled.`);
+      throw e;
     }
-  } else {
-    status.source = 'local';
-    status.render();
-    textures = buildVideoTextures();
-    poolIsVideo = true;
+    throw e;
   }
 
-  // ---------- build the tower ----------
+  // Videos load in background; gets added to the swap pool as it arrives.
+  const videoPool = [];
+  loadNASAVideos().then((videos) => {
+    videos.forEach((v) => videoPool.push(v));
+    console.log(`[NASA] ${videos.length} videos now in rotation`);
+  }).catch((e) => {
+    console.warn('NASA video pool failed (non-fatal):', e);
+  });
+
+  // ---------- tower ----------
   const tower = new THREE.Group();
   scene.add(tower);
 
   const slabs = [];
-  const allFaceMats = []; // track every face material for thumbnail swapping
   const halfCount = CONFIG.slabCount / 2;
   const faceGeom = new THREE.PlaneGeometry(1, 1);
+
+  const allMaterials = [];
+  const totalPanels = CONFIG.slabCount * 4;
+  status.total = totalPanels;
+  status.assets = totalPanels;
+  status.render();
 
   for (let i = 0; i < CONFIG.slabCount; i++) {
     const slab = new THREE.Group();
@@ -171,31 +227,28 @@ async function run() {
     ];
 
     faceDefs.forEach((f, fIdx) => {
-      const mat = new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.DoubleSide });
+      const poolIdx = (i * 3 + fIdx * 5) % images.length;
+      const mat = new THREE.MeshBasicMaterial({
+        map: images[poolIdx],
+        side: THREE.DoubleSide,
+      });
       const mesh = new THREE.Mesh(faceGeom, mat);
       mesh.scale.set(f.w, CONFIG.slabHeight, 1);
       mesh.position.set(Math.sin(f.rotY) * f.d, 0, Math.cos(f.rotY) * f.d);
       mesh.rotation.y = f.rotY;
       slab.add(mesh);
-
-      // Initial texture assignment
-      const tex = textures[(i * 3 + fIdx * 5) % textures.length];
-      if (tex) {
-        assignTexture(mat, tex);
-      }
-      allFaceMats.push(mat);
+      allMaterials.push(mat);
     });
 
     tower.add(slab);
     slabs.push(slab);
   }
 
-  // Periodic swaps (only useful when textures are still images, i.e. YouTube)
-  if (!poolIsVideo && textures.length > 1) {
-    allFaceMats.forEach((mat) => scheduleSwap(mat, textures));
-  }
+  // Rapid swap: each panel picks from images OR the video pool (as videos
+  // arrive in the background, they gradually start appearing on panels).
+  startSwapping(allMaterials, images, videoPool);
 
-  // ---------- input: head tracking (with mouse fallback) ----------
+  // ---------- input ----------
   const input = { x: 0, y: 0, targetX: 0, targetY: 0 };
   setupMouseFallback(input);
   initHeadTracking(input).catch((e) => {
@@ -204,7 +257,7 @@ async function run() {
     status.render();
   });
 
-  // ---------- animation loop ----------
+  // ---------- animation ----------
   const rot = CONFIG.rotation;
   const k = (Math.PI * 2) / rot.waveLength;
   const clock = new THREE.Clock();
@@ -212,17 +265,14 @@ async function run() {
   function animate() {
     const t = clock.getElapsedTime();
 
-    // Smooth input
     input.x += (input.targetX - input.x) * CONFIG.camera.smoothing;
     input.y += (input.targetY - input.y) * CONFIG.camera.smoothing;
 
-    // Camera: gentle parallax
     camera.position.x = input.x * CONFIG.camera.parallaxX;
     camera.position.y = input.y * CONFIG.camera.parallaxY;
     camera.position.z = CONFIG.camera.distance;
     camera.lookAt(0, 0, 0);
 
-    // Tower: base drift + head-driven rotation
     const headDriven = input.x * CONFIG.headRotation.influence;
     const baseRot = rot.baseSpeed * t + headDriven;
 
@@ -238,36 +288,273 @@ async function run() {
 }
 
 // =============================================================
-// TEXTURES
+// NASA Image Library
 // =============================================================
-function assignTexture(mat, tex) {
-  mat.map = tex;
-  mat.color.set(0xffffff);
-  mat.needsUpdate = true;
+// Uses media_type=image. Each result's `links[0].href` is a ~150KB thumbnail
+// JPG. We load all of them in parallel as THREE.Texture, then rapidly swap
+// which texture each panel shows so the tower feels alive.
+
+function cropTextureToSlabAspect(tex) {
+  // Dynamic crop: uses the loaded image's actual aspect ratio, not an
+  // assumed 16:9. For square images we get a thin horizontal band; for
+  // wide images a taller band. Result: no stretching, no empty space.
+  const img = tex.image;
+  if (!img || !img.width) return;
+  const imageAspect = img.width / img.height;
+  const slabAspect = CONFIG.slabWidth / CONFIG.slabHeight;
+  const cropY = Math.min(1, imageAspect / slabAspect);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.repeat.set(1, cropY);
+  tex.offset.set(0, (1 - cropY) / 2);
+  tex.needsUpdate = true;
 }
 
-// ---------- local video pool ----------
-function buildVideoTextures() {
+async function loadNASAImages() {
+  const queries = CONFIG.nasa.queries;
+
+  const resultsPerQuery = await Promise.all(
+    queries.map((q) => searchImages(q, CONFIG.nasa.imageItemsPerQuery))
+  );
+  const urls = resultsPerQuery.flat();
+
+  const seen = new Set();
+  const unique = urls.filter(({ url }) => {
+    if (seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+
+  if (unique.length === 0) {
+    throw new Error('no NASA images resolved from any query');
+  }
+
+  loaderLine(`loading ${unique.length} image textures...`);
+
+  // Chrome is stricter than Safari about cross-origin images. NASA's image
+  // CDN (images-assets.nasa.gov) doesn't send ACAO headers, so Chrome
+  // blocks them when loaded via TextureLoader. Workaround: load via a plain
+  // <img> tag (which Chrome allows, just taints the texture) and wrap in a
+  // CanvasTexture via Texture.image assignment.
+  function loadImageTexture(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      // Intentionally do NOT set img.crossOrigin — this lets Chrome load it
+      // even without ACAO headers. The resulting texture is "tainted" but
+      // that only blocks readPixels/toDataURL, not rendering.
+      img.onload = () => {
+        const tex = new THREE.Texture(img);
+        tex.needsUpdate = true;
+        resolve(tex);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  let loadedCount = 0;
+  const textures = await Promise.all(unique.map(({ url, title }, idx) =>
+    loadImageTexture(url)
+      .then((tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        cropTextureToSlabAspect(tex);
+        loadedCount++;
+        if (loadedCount % 10 === 0) {
+          loaderLine(`  loaded ${loadedCount}/${unique.length}`);
+        }
+        return tex;
+      })
+      .catch(() => {
+        console.warn(`[NASA] image ${idx} failed: ${title}`);
+        return null;
+      })
+  ));
+
+  return textures.filter(Boolean);
+}
+
+// ---------- videos (loaded in background, added to pool as they arrive) ----------
+async function loadNASAVideos() {
+  const queries = CONFIG.nasa.videoQueries;
+
+  const resultsPerQuery = await Promise.all(
+    queries.map((q) => resolveVideoUrls(q, CONFIG.nasa.videoItemsPerQuery))
+  );
+  const urls = resultsPerQuery.flat();
+
+  const seen = new Set();
+  const unique = urls.filter(({ url }) => {
+    if (seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+
+  console.log(`[NASA] fetching ${unique.length} videos in background`);
+
+  // Build VideoTextures. Each video will start streaming immediately and
+  // appear on panels (via the swap loop) as soon as the first frame decodes.
+  const videoTextures = unique.map(({ url, title }, idx) => {
+    const v = document.createElement('video');
+    v.crossOrigin = 'anonymous';   // NASA video CDN DOES send CORS headers
+    v.loop = true;
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.src = url;
+
+    v.addEventListener('loadeddata', () => {
+      v.currentTime = Math.random() * Math.max(0, v.duration - 1);
+      console.log(`[NASA] video loaded: ${title}`);
+    });
+    v.addEventListener('error', () => {
+      console.error(`[NASA] video ${idx} failed: ${title}`);
+    });
+    v.play().catch(() => {});
+
+    const tex = new THREE.VideoTexture(v);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+
+    // Apply crop once the video reports its dimensions
+    v.addEventListener('loadedmetadata', () => {
+      tex.image = v;
+      cropTextureToSlabAspect(tex);
+    }, { once: true });
+
+    return tex;
+  });
+
+  return videoTextures;
+}
+
+async function resolveVideoUrls(query, count) {
+  try {
+    const searchUrl = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=video`;
+    const searchRes = await fetch(searchUrl);
+    if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
+    const searchData = await searchRes.json();
+
+    const items = searchData?.collection?.items || [];
+    if (items.length === 0) return [];
+
+    const results = [];
+    for (let i = 0; i < Math.min(items.length, count * 2); i++) {
+      if (results.length >= count) break;
+      const item = items[i];
+      const title = item?.data?.[0]?.title || query;
+      const manifestUrl = (item.href || '').replace(/^http:\/\//, 'https://');
+      if (!manifestUrl) continue;
+
+      try {
+        const manifestRes = await fetch(manifestUrl);
+        if (!manifestRes.ok) continue;
+        const files = await manifestRes.json();
+
+        const mp4 = (
+          files.find((f) => /~mobile\.mp4$/i.test(f)) ||
+          files.find((f) => /~small\.mp4$/i.test(f))  ||
+          files.find((f) => /~preview\.mp4$/i.test(f)) ||
+          files.find((f) => /\.mp4$/i.test(f) && !/~orig\.mp4$/i.test(f)) ||
+          files.find((f) => /\.mp4$/i.test(f))
+        );
+
+        if (mp4) {
+          const url = mp4.replace(/^http:\/\//, 'https://');
+          results.push({ url, title });
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    return results;
+  } catch (e) {
+    console.warn(`[NASA] video query "${query}" failed:`, e.message);
+    return [];
+  }
+}
+
+async function searchImages(query, count) {
+  // Returns up to `count` image URLs for a query.
+  try {
+    const searchUrl = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
+    loaderLine(`  "${query}" searching...`);
+    const searchRes = await fetch(searchUrl);
+    if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
+    const searchData = await searchRes.json();
+
+    const items = (searchData?.collection?.items || []).slice(0, count);
+    if (items.length === 0) throw new Error(`no items for "${query}"`);
+
+    const results = items.map((item) => {
+      const title = item?.data?.[0]?.title || query;
+      const link = item?.links?.[0]?.href;
+      if (!link) return null;
+      const url = link.replace(/^http:\/\//, 'https://');
+      return { url, title };
+    }).filter(Boolean);
+
+    loaderLine(`  ✓ "${query}" → ${results.length} images`);
+    return results;
+  } catch (e) {
+    loaderLine(`  ✗ "${query}": ${e.message}`);
+    console.error(`[NASA] query "${query}" failed:`, e.message);
+    return [];
+  }
+}
+
+// =============================================================
+// PANEL SWAP LOOP
+// =============================================================
+// Each panel independently reschedules itself. At each swap it picks either
+// a video (if any loaded) or an image, weighted by videoWeight. Videos can
+// repeat across panels — GPU uploads each video frame only once regardless.
+function startSwapping(materials, images, videoPool) {
+  const { minDelayMs, maxDelayMs, videoWeight } = CONFIG.swap;
+
+  function pickTexture() {
+    if (videoPool.length > 0 && Math.random() < videoWeight) {
+      return videoPool[Math.floor(Math.random() * videoPool.length)];
+    }
+    return images[Math.floor(Math.random() * images.length)];
+  }
+
+  function scheduleSwap(mat) {
+    const delay = minDelayMs + Math.random() * (maxDelayMs - minDelayMs);
+    setTimeout(() => {
+      mat.map = pickTexture();
+      mat.needsUpdate = true;
+      scheduleSwap(mat);
+    }, delay);
+  }
+
+  materials.forEach((mat) => {
+    setTimeout(() => scheduleSwap(mat), Math.random() * maxDelayMs);
+  });
+}
+
+// =============================================================
+// LOCAL FALLBACK
+// =============================================================
+function buildLocalVideoTextures() {
   status.total = CONFIG.videoPool.length;
   return CONFIG.videoPool.map((src, idx) => {
     const v = document.createElement('video');
-    v.crossOrigin = 'anonymous';  // MUST be before src
+    v.crossOrigin = 'anonymous';
     v.loop = true;
     v.muted = true;
     v.playsInline = true;
     v.preload = 'auto';
     v.src = src;
-
     v.addEventListener('loadeddata', () => {
       v.currentTime = Math.random() * Math.max(0, v.duration - 1);
       status.assets++;
       status.render();
     });
-    v.addEventListener('error', () => {
-      console.error(`Video ${idx} failed: ${src}`);
-    });
+    v.addEventListener('error', () => console.error(`Video ${idx} failed: ${src}`));
     v.play().catch(() => {});
-
     const tex = new THREE.VideoTexture(v);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.minFilter = THREE.LinearFilter;
@@ -276,108 +563,10 @@ function buildVideoTextures() {
   });
 }
 
-// ---------- YouTube thumbnails via Data API v3 ----------
-async function loadYouTubeThumbnails() {
-  const { apiKey, query, count } = CONFIG.youtube;
-  const url = `https://www.googleapis.com/youtube/v3/search`
-    + `?part=snippet`
-    + `&maxResults=${Math.min(count, 50)}`
-    + `&q=${encodeURIComponent(query)}`
-    + `&type=video`
-    + `&key=${apiKey}`;
-
-  const res = await fetch(url);
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`YouTube API ${res.status}: ${body.slice(0, 120)}`);
-  }
-  const data = await res.json();
-  if (!data.items || data.items.length === 0) {
-    throw new Error('No YouTube results for query');
-  }
-
-  status.total = data.items.length;
-  status.render();
-
-  // Slab aspect (1.2 × 0.11) vs thumbnail aspect (16:9). Crop thumbnail to
-  // a centered horizontal band so subjects aren't stretched.
-  const slabAspect = CONFIG.slabWidth / CONFIG.slabHeight;   // ~10.9
-  const thumbAspect = 16 / 9;                                // ~1.78
-  const cropY = thumbAspect / slabAspect;                    // ~0.163
-  const offsetY = (1 - cropY) / 2;
-
-  const loader = new THREE.TextureLoader();
-  loader.setCrossOrigin('anonymous');
-
-  const textures = await Promise.all(data.items.map((item, idx) => {
-    const thumbs = item.snippet.thumbnails;
-    const src = (thumbs.maxres || thumbs.high || thumbs.medium || thumbs.default).url;
-    return new Promise((resolve) => {
-      loader.load(
-        src,
-        (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.minFilter = THREE.LinearFilter;
-          tex.magFilter = THREE.LinearFilter;
-          tex.wrapS = THREE.ClampToEdgeWrapping;
-          tex.wrapT = THREE.ClampToEdgeWrapping;
-          tex.repeat.set(1, cropY);
-          tex.offset.set(0, offsetY);
-          status.assets++;
-          status.render();
-          resolve(tex);
-        },
-        undefined,
-        (err) => {
-          console.warn(`Thumbnail ${idx} failed:`, src, err);
-          resolve(null);
-        }
-      );
-    });
-  }));
-
-  return textures.filter(Boolean);
-}
-
-// ---------- periodic thumbnail swap ----------
-function scheduleSwap(mat, textures) {
-  const { swapIntervalMs, swapJitterMs } = CONFIG.youtube;
-  const delay = swapIntervalMs + (Math.random() - 0.5) * swapJitterMs;
-
-  setTimeout(() => {
-    // Quick fade to dark → swap → fade back in. ~220ms round trip.
-    const from = { v: 1 };
-    const fadeOut = fadeMaterial(mat, 1, 0.15, 110);
-    fadeOut.then(() => {
-      const next = textures[Math.floor(Math.random() * textures.length)];
-      assignTexture(mat, next);
-      fadeMaterial(mat, 0.15, 1, 110);
-    });
-    scheduleSwap(mat, textures);
-  }, delay);
-}
-
-function fadeMaterial(mat, from, to, durationMs) {
-  return new Promise((resolve) => {
-    const start = performance.now();
-    function step() {
-      const p = Math.min(1, (performance.now() - start) / durationMs);
-      const v = from + (to - from) * p;
-      mat.color.setScalar(v);
-      mat.needsUpdate = true;
-      if (p < 1) requestAnimationFrame(step);
-      else resolve();
-    }
-    step();
-  });
-}
-
 // =============================================================
 // INPUT
 // =============================================================
 function setupMouseFallback(input) {
-  // Mouse provides a baseline so the interaction works even without webcam.
-  // Head tracking, once up, overrides these values each frame.
   window.addEventListener('mousemove', (e) => {
     input.targetX = (e.clientX / window.innerWidth - 0.5) * 2;
     input.targetY = -(e.clientY / window.innerHeight - 0.5) * 2;
@@ -387,8 +576,6 @@ function setupMouseFallback(input) {
 async function initHeadTracking(input) {
   const webcamEl = document.getElementById('webcam');
 
-  // Request camera FIRST — surfaces permission errors clearly before we spend
-  // 10+MB downloading MediaPipe.
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -400,56 +587,46 @@ async function initHeadTracking(input) {
   webcamEl.srcObject = stream;
   await new Promise((r) => webcamEl.addEventListener('loadeddata', r, { once: true }));
 
-  // Now load MediaPipe
   const MP = '0.10.32';
-  let FaceLandmarker, FilesetResolver;
-  try {
-    ({ FaceLandmarker, FilesetResolver } = await import(
-      `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/vision_bundle.mjs`
-    ));
-  } catch (e) {
-    throw new Error(`mediapipe module load: ${e.message}`);
-  }
-
+  const { FaceLandmarker, FilesetResolver } = await import(
+    `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/vision_bundle.mjs`
+  );
   const resolver = await FilesetResolver.forVisionTasks(
     `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/wasm`
   );
 
   let faceLandmarker;
+  const baseOpts = {
+    modelAssetPath:
+      'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+  };
   try {
     faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
-      baseOptions: {
-        modelAssetPath:
-          'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numFaces: 1,
+      baseOptions: { ...baseOpts, delegate: 'GPU' },
+      runningMode: 'VIDEO', numFaces: 1,
     });
   } catch (e) {
-    // GPU delegate can fail on some machines — retry with CPU
     faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
-      baseOptions: {
-        modelAssetPath:
-          'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: 'CPU',
-      },
-      runningMode: 'VIDEO',
-      numFaces: 1,
+      baseOptions: { ...baseOpts, delegate: 'CPU' },
+      runningMode: 'VIDEO', numFaces: 1,
     });
   }
 
   status.tracking = 'on';
   status.render();
 
-  // Poll every animation frame via a separate rAF loop
   function poll() {
     if (webcamEl.readyState >= 2) {
       const result = faceLandmarker.detectForVideo(webcamEl, performance.now());
       if (result.faceLandmarks && result.faceLandmarks.length > 0) {
         const nose = result.faceLandmarks[0][1];
         input.targetX = (0.5 - nose.x) * 2;
-        input.targetY = (0.5 - nose.y) * 2;
+        // Invert Y: when head goes UP (nose.y decreases in image coords),
+        // we want input.y to go UP too. In image coords, y=0 is top, so
+        // (nose.y - 0.5) gives "down is positive", which when passed to
+        // parallax makes camera move DOWN when head moves UP. We want
+        // the opposite: head up → tower/camera up.
+        input.targetY = (nose.y - 0.5) * 2;
       }
     }
     requestAnimationFrame(poll);
