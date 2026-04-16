@@ -132,7 +132,8 @@ html, body {
   color: rgba(255,255,255,0.5);
 }
 #loader-log {
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
   color: rgba(255,255,255,0.8);
   max-width: 700px;
   line-height: 1.8;
@@ -264,16 +265,17 @@ body.about-page {
   #hint,
   #about-link,
   #back-link {
-    font-size: 9px;
+    font-size: 11px;
     letter-spacing: 0.1em;
     padding: 5px 8px;
   }
 
   /* The Enter button on the intro overlay */
   #start {
-    font-size: 11px;
+    font-size: 10px;
     padding: 12px 22px;
     letter-spacing: 0.2em;
+    transform: translateY(6vh);
   }
 
   /* About page text tightens up */
@@ -300,3 +302,13 @@ body.about-page {
     margin-top: 40px;
   }
 }
+
+#loader {
+    padding: 24px 20px;
+    font-size: 10px;
+  }
+
+  #loader-title {
+    font-size: 11px;
+    margin-bottom: 16px;
+  }
