@@ -1,91 +1,140 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 // =============================================================
-// CONFIG
+// PATTERNS — each preset defines the tower's motion behavior
 // =============================================================
-const CONFIG = {
-  slabCount: 32,
-  slabHeight: 0.11,
-  slabWidth:  1.2,
-  slabDepth:  1.2,
-  slabGap:    0.002,
+// The slab geometry is fixed (SLAB object below) — all patterns share
+// the same 32 thin slabs. Patterns only vary rotation/wave/helix.
+// Switch between them with ← → arrow keys.
+//
+// What each rotation property controls:
+//   rotation.baseSpeed     — how fast the whole tower spins (radians per second)
+//   rotation.waveAmplitude — how far each slab twists from its neighbors
+//   rotation.waveLength    — how many slabs fit in one full wave cycle
+//   rotation.waveSpeed     — how fast the wave ripples up/down the tower
+//   helixOffset            — adds a fixed angular offset per slab,
+//                            creating a spiral staircase shape
+//   cameraDistance          — how far the camera sits from the tower center
 
-  rotation: {
-    baseSpeed: 0.08,
-    waveAmplitude: 0.48,
-    waveLength: 22,
-    waveSpeed: 1.0,
+// All patterns share the original slab geometry — 32 thin slabs in a
+// square column. Only the rotation/wave/helix behavior changes between
+// patterns, so the tower always looks like your reference video.
+const SLAB = {
+  count:  32,
+  height: 0.11,
+  width:  1.2,
+  depth:  1.2,
+  gap:    0.002,
+};
+
+const PATTERNS = {
+
+  // DRIFT — the original. Gentle wave ripples up the stack while the
+  // whole tower slowly rotates. Matches the reference video.
+  drift: {
+    rotation: {
+      baseSpeed: 0.08,
+      waveAmplitude: 0.48,
+      waveLength: 22,
+      waveSpeed: 1.0,
+    },
+    helixOffset: 0,
+    cameraDistance: 2.3,
   },
 
+  // SURGE — faster rotation, tighter wave. Feels like the tower is
+  // being buffeted by a current. More energetic than drift.
+  surge: {
+    rotation: {
+      baseSpeed: 0.14,
+      waveAmplitude: 0.7,
+      waveLength: 10,
+      waveSpeed: 2.0,
+    },
+    helixOffset: 0,
+    cameraDistance: 2.3,
+  },
+
+  // HELIX — each slab is offset ~11° from the one below, creating a
+  // spiral staircase shape. No wave so the spiral reads clearly.
+  helix: {
+    rotation: {
+      baseSpeed: 0.04,
+      waveAmplitude: 0,
+      waveLength: 32,
+      waveSpeed: 0,
+    },
+    helixOffset: Math.PI / 16,
+    cameraDistance: 2.3,
+  },
+
+  // SHEAR — very long, slow wave with high amplitude. Only a few slabs
+  // twist at a time, creating a shearing/folding effect mid-tower.
+  shear: {
+    rotation: {
+      baseSpeed: 0.05,
+      waveAmplitude: 1.2,
+      waveLength: 40,
+      waveSpeed: 0.5,
+    },
+    helixOffset: 0,
+    cameraDistance: 2.3,
+  },
+
+  // PULSE — short wavelength, fast speed, low amplitude. Each slab
+  // twitches rapidly, creating a vibrating/buzzing texture.
+  pulse: {
+    rotation: {
+      baseSpeed: 0.06,
+      waveAmplitude: 0.25,
+      waveLength: 4,
+      waveSpeed: 3.0,
+    },
+    helixOffset: 0,
+    cameraDistance: 2.3,
+  },
+};
+
+// Order in which arrow keys cycle through patterns
+const PATTERN_ORDER = ['drift', 'surge', 'helix', 'shear', 'pulse'];
+let currentPatternIndex = 0;
+
+// =============================================================
+// STATIC CONFIG (things that don't change between patterns)
+// =============================================================
+const CONFIG = {
   camera: {
-    distance: 2.3,
     fov: 45,
     parallaxX: 0.6,
     parallaxY: 0.8,
     smoothing: 0.09,
   },
-
-  headRotation: {
-    influence: 1.6,
-  },
-
-  // If true, show a fatal error instead of silently falling back to local.
+  headRotation: { influence: 1.6 },
   requireNASA: true,
-
-  // ---------- NASA Image & Video Library ----------
-  // Hybrid pool: images for speed (fill the tower instantly), videos for
-  // motion. Browsers cap at ~6-8 concurrent video decodes, so we fetch a
-  // small video pool that paints many panels (same stream on multiple
-  // panels is free — GPU uploads each frame once).
   nasa: {
     queries: [
-      'carina nebula',
-      'orion nebula',
-      'crab nebula',
-      'helix nebula',
-      'butterfly nebula',
-      'eagle nebula',
-      'lagoon nebula',
-      'ring nebula',
-      'andromeda galaxy',
-      'whirlpool galaxy',
-      'sombrero galaxy',
-      'pillars of creation',
-      'hubble deep field',
-      'webb telescope first images',
-      'black hole',
+      'carina nebula', 'orion nebula', 'crab nebula', 'helix nebula',
+      'butterfly nebula', 'eagle nebula', 'lagoon nebula', 'ring nebula',
+      'andromeda galaxy', 'whirlpool galaxy', 'sombrero galaxy',
+      'pillars of creation', 'hubble deep field',
+      'webb telescope first images', 'black hole',
     ],
-    imageItemsPerQuery: 8,    // 15 × 8 = ~120 unique images (instant tower)
-    videoQueries: [           // focused subset for video fetching
-      'hubble nebula',
-      'carina nebula',
-      'james webb galaxy',
-      'black hole simulation',
-      'solar dynamics',
-      'pillars of creation',
+    imageItemsPerQuery: 8,
+    videoQueries: [
+      'hubble nebula', 'carina nebula', 'james webb galaxy',
+      'black hole simulation', 'solar dynamics', 'pillars of creation',
     ],
-    videoItemsPerQuery: 2,    // 6 × 2 = ~12 videos (below browser decode cap)
+    videoItemsPerQuery: 2,
   },
-
-  swap: {
-    minDelayMs: 1500,
-    maxDelayMs: 5000,
-    videoWeight: 0.5,         // 50% chance each swap lands on a video
-  },
-
-  // Used only if requireNASA is false
-  videoPool: [
-    './videos/1.mp4', './videos/2.mp4', './videos/3.mp4', './videos/4.mp4',
-    './videos/5.mp4', './videos/6.mp4', './videos/7.mp4', './videos/8.mp4',
-  ],
+  swap: { minDelayMs: 1500, maxDelayMs: 5000, videoWeight: 0.5 },
 };
 
 // =============================================================
 // LOADER + FATAL UI
 // =============================================================
-const loaderEl = document.getElementById('loader');
+const loaderEl  = document.getElementById('loader');
 const loaderLog = document.getElementById('loader-log');
-const fatalEl = document.getElementById('fatal');
+const fatalEl   = document.getElementById('fatal');
 
 function loaderShow() { loaderEl.classList.add('show'); }
 function loaderHide() { loaderEl.classList.remove('show'); }
@@ -104,6 +153,8 @@ function fatal(title, details) {
 // STATUS HUD
 // =============================================================
 const statusEl = document.getElementById('status');
+const patternLabelEl = document.getElementById('pattern-label');
+
 const status = {
   source: '—',
   assets: 0, total: 0,
@@ -120,6 +171,10 @@ const status = {
   },
 };
 status.render();
+
+function showPatternLabel(name) {
+  patternLabelEl.textContent = name;
+}
 
 // =============================================================
 // ENTRY
@@ -143,7 +198,7 @@ startBtn.addEventListener('click', () => {
 // MAIN
 // =============================================================
 async function run() {
-  const canvas = document.getElementById('scene');
+  const canvas   = document.getElementById('scene');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -151,55 +206,22 @@ async function run() {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x000000, 6, 14);
+  scene.fog  = new THREE.Fog(0x000000, 6, 14);
 
   const camera = new THREE.PerspectiveCamera(
     CONFIG.camera.fov, window.innerWidth / window.innerHeight, 0.1, 100
   );
-  camera.position.set(0, 0, CONFIG.camera.distance);
-  camera.lookAt(0, 0, 0);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.9));
   const rim = new THREE.DirectionalLight(0xffffff, 0.3);
   rim.position.set(3, 2, 4);
   scene.add(rim);
 
-  // Dynamic camera distance: on narrow/portrait screens the tower is too
-  // wide to fit at the default distance, so we pull the camera back until
-  // the rotating tower fits horizontally with a small margin.
-  let cameraDistance = CONFIG.camera.distance;
-
-  function updateCameraForViewport() {
-    const aspect = window.innerWidth / window.innerHeight;
-    camera.aspect = aspect;
-
-    // The tower's widest silhouette happens when it's rotated 45° — then
-    // its profile is the diagonal across its square footprint.
-    const maxExtent = Math.sqrt(CONFIG.slabWidth ** 2 + CONFIG.slabDepth ** 2);
-    // Convert the vertical FOV (set in CONFIG) into a horizontal FOV using
-    // the current aspect ratio. Narrower screen → narrower horizontal FOV.
-    const vFov = CONFIG.camera.fov * Math.PI / 180;
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-    // Distance at which the tower's diagonal exactly fills the view,
-    // multiplied by 1.15 for a small margin around the edges.
-    const fitDistance = (maxExtent / 2) / Math.tan(hFov / 2) * 1.15;
-
-    // Never get CLOSER than the configured default — only further back.
-    // That way wide desktop screens keep their nice close framing.
-    cameraDistance = Math.max(CONFIG.camera.distance, fitDistance);
-
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-
-  updateCameraForViewport();
-  window.addEventListener('resize', updateCameraForViewport);
-
-  // ---------- texture pool ----------
+  // ---------- load NASA images ----------
   status.source = 'nasa';
   status.render();
   loaderShow();
-  loaderLine(`fetching NASA images (fast) + videos (background)...`);
+  loaderLine('fetching NASA images (fast) + videos (background)...');
 
   let images;
   try {
@@ -210,13 +232,15 @@ async function run() {
   } catch (e) {
     console.error('NASA load failed:', e);
     if (CONFIG.requireNASA) {
-      fatal('NASA load failed', `${e.message}\n\nOpen DevTools Network tab, refresh, and look for requests to images-api.nasa.gov.\nIf they're blocked (red), it's a CORS / extension / network issue.\nTry: incognito window with extensions disabled.`);
+      fatal('NASA load failed',
+        `${e.message}\n\nOpen DevTools → Network tab, refresh, and look for ` +
+        `requests to images-api.nasa.gov.\nIf blocked, try incognito with extensions disabled.`);
       throw e;
     }
     throw e;
   }
 
-  // Videos load in background; gets added to the swap pool as it arrives.
+  // Videos load in background
   const videoPool = [];
   loadNASAVideos().then((videos) => {
     videos.forEach((v) => videoPool.push(v));
@@ -225,59 +249,129 @@ async function run() {
     console.warn('NASA video pool failed (non-fatal):', e);
   });
 
-  // ---------- tower ----------
+  // ---------- tower container ----------
   const tower = new THREE.Group();
   scene.add(tower);
 
-  const slabs = [];
-  const halfCount = CONFIG.slabCount / 2;
-  const faceGeom = new THREE.PlaneGeometry(1, 1);
+  // These are mutable — they get replaced each time the pattern changes.
+  let slabs = [];
+  let allMaterials = [];
+  let activePattern = null;   // reference to the current PATTERNS entry
+  let swapGeneration = 0;     // incremented on rebuild to stop old swap timers
 
-  const allMaterials = [];
-  const totalPanels = CONFIG.slabCount * 4;
-  status.total = totalPanels;
-  status.assets = totalPanels;
-  status.render();
+  // ---------- build / rebuild the tower from a pattern ----------
+  // Geometry always comes from SLAB (fixed). Only motion behavior
+  // changes between patterns. On switch: old meshes are removed,
+  // new ones created, swap loop restarted.
+  function buildFromPattern(patternName) {
+    const pat = PATTERNS[patternName];
+    activePattern = pat;
 
-  for (let i = 0; i < CONFIG.slabCount; i++) {
-    const slab = new THREE.Group();
-    slab.position.y = (i - halfCount + 0.5) * (CONFIG.slabHeight + CONFIG.slabGap);
+    // Stop old swap timers by incrementing the generation counter
+    swapGeneration++;
 
-    const faceDefs = [
-      { rotY: 0,            w: CONFIG.slabWidth, d: CONFIG.slabDepth / 2 },
-      { rotY: Math.PI / 2,  w: CONFIG.slabDepth, d: CONFIG.slabWidth / 2 },
-      { rotY: Math.PI,      w: CONFIG.slabWidth, d: CONFIG.slabDepth / 2 },
-      { rotY: -Math.PI / 2, w: CONFIG.slabDepth, d: CONFIG.slabWidth / 2 },
-    ];
-
-    faceDefs.forEach((f, fIdx) => {
-      const poolIdx = (i * 3 + fIdx * 5) % images.length;
-      const mat = new THREE.MeshBasicMaterial({
-        map: images[poolIdx],
-        side: THREE.DoubleSide,
+    // Remove old slabs from the scene and free their GPU memory
+    slabs.forEach((slab) => {
+      slab.children.forEach((mesh) => {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
       });
-      const mesh = new THREE.Mesh(faceGeom, mat);
-      mesh.scale.set(f.w, CONFIG.slabHeight, 1);
-      mesh.position.set(Math.sin(f.rotY) * f.d, 0, Math.cos(f.rotY) * f.d);
-      mesh.rotation.y = f.rotY;
-      slab.add(mesh);
-      allMaterials.push(mat);
+      tower.remove(slab);
     });
+    slabs = [];
+    allMaterials = [];
 
-    tower.add(slab);
-    slabs.push(slab);
+    // Crop all image textures for the slab aspect ratio.
+    const slabAspect = SLAB.width / SLAB.height;
+    images.forEach((tex) => cropTextureToAspect(tex, slabAspect));
+
+    // Build new slabs
+    const halfCount = SLAB.count / 2;
+    const faceGeom  = new THREE.PlaneGeometry(1, 1);
+    const totalPanels = SLAB.count * 4;
+
+    for (let i = 0; i < SLAB.count; i++) {
+      const slab = new THREE.Group();
+      slab.position.y = (i - halfCount + 0.5) * (SLAB.height + SLAB.gap);
+
+      const faceDefs = [
+        { rotY: 0,            w: SLAB.width, d: SLAB.depth / 2 },
+        { rotY: Math.PI / 2,  w: SLAB.depth, d: SLAB.width / 2 },
+        { rotY: Math.PI,      w: SLAB.width, d: SLAB.depth / 2 },
+        { rotY: -Math.PI / 2, w: SLAB.depth, d: SLAB.width / 2 },
+      ];
+
+      faceDefs.forEach((f, fIdx) => {
+        const poolIdx = (i * 3 + fIdx * 5) % images.length;
+        const mat = new THREE.MeshBasicMaterial({
+          map: images[poolIdx],
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(faceGeom, mat);
+        mesh.scale.set(f.w, SLAB.height, 1);
+        mesh.position.set(Math.sin(f.rotY) * f.d, 0, Math.cos(f.rotY) * f.d);
+        mesh.rotation.y = f.rotY;
+        slab.add(mesh);
+        allMaterials.push(mat);
+      });
+
+      tower.add(slab);
+      slabs.push(slab);
+    }
+
+    status.total  = totalPanels;
+    status.assets = totalPanels;
+    status.render();
+
+    // Start the swap loop for this generation of materials
+    startSwapping(allMaterials, images, videoPool, slabAspect);
+
+    // Set camera distance and scale tower to fit viewport
+    camera.position.set(0, 0, pat.cameraDistance);
+    camera.lookAt(0, 0, 0);
+    fitTowerToViewport();
+
+    // Update the HUD label
+    showPatternLabel(patternName);
+
+    console.log(`[pattern] switched to "${patternName}"`);
   }
 
-  // Rapid swap: each panel picks from images OR the video pool (as videos
-  // arrive in the background, they gradually start appearing on panels).
-  startSwapping(allMaterials, images, videoPool);
+  // ---------- viewport fit (scale tower, not move camera) ----------
+  function fitTowerToViewport() {
+    if (!activePattern) return;
+    const aspect = window.innerWidth / window.innerHeight;
+    const maxExtent = Math.sqrt(SLAB.width ** 2 + SLAB.depth ** 2);
+    const vFov = CONFIG.camera.fov * Math.PI / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const fitDistance = (maxExtent / 2) / Math.tan(hFov / 2) * 1.15;
+    const scale = Math.min(1, activePattern.cameraDistance / fitDistance);
+    tower.scale.setScalar(scale);
+  }
 
-  // ---------- input ----------
-  // `input` holds the current (x, y) offset that drives the camera + tower
-  // tilt. `targetX`/`targetY` are what the head tracker writes to; the
-  // animate loop smoothly interpolates `x`/`y` toward those targets so the
-  // motion doesn't jitter. If head tracking fails, these values stay at 0
-  // and the tower simply rotates on its own without responding to input.
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    fitTowerToViewport();
+  });
+
+  // ---------- pattern switching (← → arrow keys) ----------
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') {
+      currentPatternIndex = (currentPatternIndex + 1) % PATTERN_ORDER.length;
+      buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
+    } else if (e.key === 'ArrowLeft') {
+      currentPatternIndex =
+        (currentPatternIndex - 1 + PATTERN_ORDER.length) % PATTERN_ORDER.length;
+      buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
+    }
+  });
+
+  // ---------- build initial pattern ----------
+  buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
+
+  // ---------- input (head tracking only) ----------
   const input = { x: 0, y: 0, targetX: 0, targetY: 0 };
   initHeadTracking(input).catch((e) => {
     console.warn('Head tracking failed:', e);
@@ -286,28 +380,38 @@ async function run() {
     status.render();
   });
 
-  // ---------- animation ----------
-  const rot = CONFIG.rotation;
-  const k = (Math.PI * 2) / rot.waveLength;
+  // ---------- animation loop ----------
   const clock = new THREE.Clock();
 
   function animate() {
-    const t = clock.getElapsedTime();
+    const t   = clock.getElapsedTime();
+    const pat = activePattern;
+    const rot = pat.rotation;
 
+    // Smooth the head input so the tower doesn't jitter
     input.x += (input.targetX - input.x) * CONFIG.camera.smoothing;
     input.y += (input.targetY - input.y) * CONFIG.camera.smoothing;
 
+    // Move the camera based on head position (parallax effect)
     camera.position.x = input.x * CONFIG.camera.parallaxX;
     camera.position.y = input.y * CONFIG.camera.parallaxY;
-    camera.position.z = cameraDistance;
+    camera.position.z = pat.cameraDistance;
     camera.lookAt(0, 0, 0);
 
+    // Head horizontal movement also drives the tower's rotation,
+    // so tilting your head left/right spins the tower
     const headDriven = input.x * CONFIG.headRotation.influence;
-    const baseRot = rot.baseSpeed * t + headDriven;
+    const baseRot    = rot.baseSpeed * t + headDriven;
+
+    // Wave constant: converts slab index into radians along the wave
+    const k = (Math.PI * 2) / rot.waveLength;
 
     for (let i = 0; i < slabs.length; i++) {
+      // Wave: each slab twists by a sine offset based on its position
       const wave = rot.waveAmplitude * Math.sin(k * i - rot.waveSpeed * t);
-      slabs[i].rotation.y = baseRot + wave;
+      // Helix: a fixed angular offset per slab (0 for most patterns)
+      const helix = pat.helixOffset * i;
+      slabs[i].rotation.y = baseRot + wave + helix;
     }
 
     renderer.render(scene, camera);
@@ -317,31 +421,42 @@ async function run() {
 }
 
 // =============================================================
-// NASA Image Library
+// TEXTURE CROPPING
 // =============================================================
-// Uses media_type=image. Each result's `links[0].href` is a ~150KB thumbnail
-// JPG. We load all of them in parallel as THREE.Texture, then rapidly swap
-// which texture each panel shows so the tower feels alive.
+// Instead of stretching an image to fill a slab (which would distort
+// it), this function figures out the right crop so the image fills the
+// slab's aspect ratio by cutting off the top/bottom or left/right.
+//
+// How it works:
+// - The slab might be 4:1 (wide and short) while the image is 4:3.
+// - We calculate how much of the image height to show so the visible
+//   portion matches the slab's proportions.
+// - `tex.repeat` controls how much of the image is used (1 = all, 0.5 = half)
+// - `tex.offset` shifts which portion is shown (centered)
 
-function cropTextureToSlabAspect(tex) {
-  // Dynamic crop: uses the loaded image's actual aspect ratio, not an
-  // assumed 16:9. For square images we get a thin horizontal band; for
-  // wide images a taller band. Result: no stretching, no empty space.
+function cropTextureToAspect(tex, slabAspect) {
   const img = tex.image;
   if (!img || !img.width) return;
   const imageAspect = img.width / img.height;
-  const slabAspect = CONFIG.slabWidth / CONFIG.slabHeight;
+
+  // How much of the image's height to use (1 = full height, 0.5 = half)
   const cropY = Math.min(1, imageAspect / slabAspect);
+  // How much of the image's width to use
+  const cropX = Math.min(1, slabAspect / imageAspect);
+
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.repeat.set(1, cropY);
-  tex.offset.set(0, (1 - cropY) / 2);
+  tex.repeat.set(cropX, cropY);
+  tex.offset.set((1 - cropX) / 2, (1 - cropY) / 2);
   tex.needsUpdate = true;
 }
 
+// =============================================================
+// NASA Image Library
+// =============================================================
+
 async function loadNASAImages() {
   const queries = CONFIG.nasa.queries;
-
   const resultsPerQuery = await Promise.all(
     queries.map((q) => searchImages(q, CONFIG.nasa.imageItemsPerQuery))
   );
@@ -360,17 +475,9 @@ async function loadNASAImages() {
 
   loaderLine(`loading ${unique.length} image textures...`);
 
-  // Chrome is stricter than Safari about cross-origin images. NASA's image
-  // CDN (images-assets.nasa.gov) doesn't send ACAO headers, so Chrome
-  // blocks them when loaded via TextureLoader. Workaround: load via a plain
-  // <img> tag (which Chrome allows, just taints the texture) and wrap in a
-  // CanvasTexture via Texture.image assignment.
   function loadImageTexture(url) {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      // Intentionally do NOT set img.crossOrigin — this lets Chrome load it
-      // even without ACAO headers. The resulting texture is "tainted" but
-      // that only blocks readPixels/toDataURL, not rendering.
       img.onload = () => {
         const tex = new THREE.Texture(img);
         tex.needsUpdate = true;
@@ -386,9 +493,8 @@ async function loadNASAImages() {
     loadImageTexture(url)
       .then((tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        cropTextureToSlabAspect(tex);
+        tex.minFilter  = THREE.LinearFilter;
+        tex.magFilter  = THREE.LinearFilter;
         loadedCount++;
         if (loadedCount % 10 === 0) {
           loaderLine(`  loaded ${loadedCount}/${unique.length}`);
@@ -404,10 +510,10 @@ async function loadNASAImages() {
   return textures.filter(Boolean);
 }
 
-// ---------- videos (loaded in background, added to pool as they arrive) ----------
+// ---------- videos ----------
+
 async function loadNASAVideos() {
   const queries = CONFIG.nasa.videoQueries;
-
   const resultsPerQuery = await Promise.all(
     queries.map((q) => resolveVideoUrls(q, CONFIG.nasa.videoItemsPerQuery))
   );
@@ -422,16 +528,14 @@ async function loadNASAVideos() {
 
   console.log(`[NASA] fetching ${unique.length} videos in background`);
 
-  // Build VideoTextures. Each video will start streaming immediately and
-  // appear on panels (via the swap loop) as soon as the first frame decodes.
   const videoTextures = unique.map(({ url, title }, idx) => {
     const v = document.createElement('video');
-    v.crossOrigin = 'anonymous';   // NASA video CDN DOES send CORS headers
-    v.loop = true;
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = 'auto';
-    v.src = url;
+    v.crossOrigin  = 'anonymous';
+    v.loop         = true;
+    v.muted        = true;
+    v.playsInline  = true;
+    v.preload      = 'auto';
+    v.src          = url;
 
     v.addEventListener('loadeddata', () => {
       v.currentTime = Math.random() * Math.max(0, v.duration - 1);
@@ -444,15 +548,8 @@ async function loadNASAVideos() {
 
     const tex = new THREE.VideoTexture(v);
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-
-    // Apply crop once the video reports its dimensions
-    v.addEventListener('loadedmetadata', () => {
-      tex.image = v;
-      cropTextureToSlabAspect(tex);
-    }, { once: true });
-
+    tex.minFilter  = THREE.LinearFilter;
+    tex.magFilter  = THREE.LinearFilter;
     return tex;
   });
 
@@ -461,8 +558,9 @@ async function loadNASAVideos() {
 
 async function resolveVideoUrls(query, count) {
   try {
-    const searchUrl = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=video`;
-    const searchRes = await fetch(searchUrl);
+    const searchUrl =
+      `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=video`;
+    const searchRes  = await fetch(searchUrl);
     if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
     const searchData = await searchRes.json();
 
@@ -472,16 +570,14 @@ async function resolveVideoUrls(query, count) {
     const results = [];
     for (let i = 0; i < Math.min(items.length, count * 2); i++) {
       if (results.length >= count) break;
-      const item = items[i];
+      const item  = items[i];
       const title = item?.data?.[0]?.title || query;
       const manifestUrl = (item.href || '').replace(/^http:\/\//, 'https://');
       if (!manifestUrl) continue;
-
       try {
         const manifestRes = await fetch(manifestUrl);
         if (!manifestRes.ok) continue;
         const files = await manifestRes.json();
-
         const mp4 = (
           files.find((f) => /~mobile\.mp4$/i.test(f)) ||
           files.find((f) => /~small\.mp4$/i.test(f))  ||
@@ -489,14 +585,10 @@ async function resolveVideoUrls(query, count) {
           files.find((f) => /\.mp4$/i.test(f) && !/~orig\.mp4$/i.test(f)) ||
           files.find((f) => /\.mp4$/i.test(f))
         );
-
         if (mp4) {
-          const url = mp4.replace(/^http:\/\//, 'https://');
-          results.push({ url, title });
+          results.push({ url: mp4.replace(/^http:\/\//, 'https://'), title });
         }
-      } catch (e) {
-        continue;
-      }
+      } catch { continue; }
     }
     return results;
   } catch (e) {
@@ -506,11 +598,11 @@ async function resolveVideoUrls(query, count) {
 }
 
 async function searchImages(query, count) {
-  // Returns up to `count` image URLs for a query.
   try {
-    const searchUrl = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
+    const searchUrl =
+      `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
     loaderLine(`  "${query}" searching...`);
-    const searchRes = await fetch(searchUrl);
+    const searchRes  = await fetch(searchUrl);
     if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
     const searchData = await searchRes.json();
 
@@ -519,10 +611,9 @@ async function searchImages(query, count) {
 
     const results = items.map((item) => {
       const title = item?.data?.[0]?.title || query;
-      const link = item?.links?.[0]?.href;
+      const link  = item?.links?.[0]?.href;
       if (!link) return null;
-      const url = link.replace(/^http:\/\//, 'https://');
-      return { url, title };
+      return { url: link.replace(/^http:\/\//, 'https://'), title };
     }).filter(Boolean);
 
     loaderLine(`  ✓ "${query}" → ${results.length} images`);
@@ -537,15 +628,23 @@ async function searchImages(query, count) {
 // =============================================================
 // PANEL SWAP LOOP
 // =============================================================
-// Each panel independently reschedules itself. At each swap it picks either
-// a video (if any loaded) or an image, weighted by videoWeight. Videos can
-// repeat across panels — GPU uploads each video frame only once regardless.
-function startSwapping(materials, images, videoPool) {
+// Each panel picks a new random image or video on a timer.
+// `swapGeneration` is a counter that increments every time the tower
+// is rebuilt. Each swap callback checks if its generation is still
+// current — if not, it stops rescheduling. This prevents old timers
+// from writing to materials that no longer exist.
+
+let swapGeneration = 0;
+
+function startSwapping(materials, images, videoPool, slabAspect) {
+  const gen = ++swapGeneration;
   const { minDelayMs, maxDelayMs, videoWeight } = CONFIG.swap;
 
   function pickTexture() {
     if (videoPool.length > 0 && Math.random() < videoWeight) {
-      return videoPool[Math.floor(Math.random() * videoPool.length)];
+      const tex = videoPool[Math.floor(Math.random() * videoPool.length)];
+      cropTextureToAspect(tex, slabAspect);
+      return tex;
     }
     return images[Math.floor(Math.random() * images.length)];
   }
@@ -553,6 +652,8 @@ function startSwapping(materials, images, videoPool) {
   function scheduleSwap(mat) {
     const delay = minDelayMs + Math.random() * (maxDelayMs - minDelayMs);
     setTimeout(() => {
+      // If the pattern changed since this timer was set, stop
+      if (gen !== swapGeneration) return;
       mat.map = pickTexture();
       mat.needsUpdate = true;
       scheduleSwap(mat);
@@ -560,44 +661,16 @@ function startSwapping(materials, images, videoPool) {
   }
 
   materials.forEach((mat) => {
-    setTimeout(() => scheduleSwap(mat), Math.random() * maxDelayMs);
-  });
-}
-
-// =============================================================
-// LOCAL FALLBACK
-// =============================================================
-function buildLocalVideoTextures() {
-  status.total = CONFIG.videoPool.length;
-  return CONFIG.videoPool.map((src, idx) => {
-    const v = document.createElement('video');
-    v.crossOrigin = 'anonymous';
-    v.loop = true;
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = 'auto';
-    v.src = src;
-    v.addEventListener('loadeddata', () => {
-      v.currentTime = Math.random() * Math.max(0, v.duration - 1);
-      status.assets++;
-      status.render();
-    });
-    v.addEventListener('error', () => console.error(`Video ${idx} failed: ${src}`));
-    v.play().catch(() => {});
-    const tex = new THREE.VideoTexture(v);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    return tex;
+    setTimeout(() => {
+      if (gen !== swapGeneration) return;
+      scheduleSwap(mat);
+    }, Math.random() * maxDelayMs);
   });
 }
 
 // =============================================================
 // INPUT — head tracking only
 // =============================================================
-// The mouse fallback has been intentionally removed. Now the tower only
-// responds to head movement via the webcam. If the user denies camera
-// access, the tower still rotates on its own but won't tilt toward input.
 
 async function initHeadTracking(input) {
   const webcamEl = document.getElementById('webcam');
@@ -611,7 +684,9 @@ async function initHeadTracking(input) {
     throw new Error(`camera denied: ${e.name}`);
   }
   webcamEl.srcObject = stream;
-  await new Promise((r) => webcamEl.addEventListener('loadeddata', r, { once: true }));
+  await new Promise((r) =>
+    webcamEl.addEventListener('loadeddata', r, { once: true })
+  );
 
   const MP = '0.10.32';
   const { FaceLandmarker, FilesetResolver } = await import(
@@ -631,7 +706,7 @@ async function initHeadTracking(input) {
       baseOptions: { ...baseOpts, delegate: 'GPU' },
       runningMode: 'VIDEO', numFaces: 1,
     });
-  } catch (e) {
+  } catch {
     faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
       baseOptions: { ...baseOpts, delegate: 'CPU' },
       runningMode: 'VIDEO', numFaces: 1,
@@ -647,11 +722,6 @@ async function initHeadTracking(input) {
       if (result.faceLandmarks && result.faceLandmarks.length > 0) {
         const nose = result.faceLandmarks[0][1];
         input.targetX = (0.5 - nose.x) * 2;
-        // Invert Y: when head goes UP (nose.y decreases in image coords),
-        // we want input.y to go UP too. In image coords, y=0 is top, so
-        // (nose.y - 0.5) gives "down is positive", which when passed to
-        // parallax makes camera move DOWN when head moves UP. We want
-        // the opposite: head up → tower/camera up.
         input.targetY = (nose.y - 0.5) * 2;
       }
     }
