@@ -30,7 +30,6 @@ const CONFIG = {
   },
 
   // If true, show a fatal error instead of silently falling back to local.
-  // Keeps you honest: you'll SEE when NASA fails.
   requireNASA: true,
 
   // ---------- NASA Image & Video Library ----------
@@ -165,11 +164,36 @@ async function run() {
   rim.position.set(3, 2, 4);
   scene.add(rim);
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  // Dynamic camera distance: on narrow/portrait screens the tower is too
+  // wide to fit at the default distance, so we pull the camera back until
+  // the rotating tower fits horizontally with a small margin.
+  let cameraDistance = CONFIG.camera.distance;
+
+  function updateCameraForViewport() {
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = aspect;
+
+    // The tower's widest silhouette happens when it's rotated 45° — then
+    // its profile is the diagonal across its square footprint.
+    const maxExtent = Math.sqrt(CONFIG.slabWidth ** 2 + CONFIG.slabDepth ** 2);
+    // Convert the vertical FOV (set in CONFIG) into a horizontal FOV using
+    // the current aspect ratio. Narrower screen → narrower horizontal FOV.
+    const vFov = CONFIG.camera.fov * Math.PI / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    // Distance at which the tower's diagonal exactly fills the view,
+    // multiplied by 1.15 for a small margin around the edges.
+    const fitDistance = (maxExtent / 2) / Math.tan(hFov / 2) * 1.15;
+
+    // Never get CLOSER than the configured default — only further back.
+    // That way wide desktop screens keep their nice close framing.
+    cameraDistance = Math.max(CONFIG.camera.distance, fitDistance);
+
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+  }
+
+  updateCameraForViewport();
+  window.addEventListener('resize', updateCameraForViewport);
 
   // ---------- texture pool ----------
   status.source = 'nasa';
@@ -249,11 +273,16 @@ async function run() {
   startSwapping(allMaterials, images, videoPool);
 
   // ---------- input ----------
+  // `input` holds the current (x, y) offset that drives the camera + tower
+  // tilt. `targetX`/`targetY` are what the head tracker writes to; the
+  // animate loop smoothly interpolates `x`/`y` toward those targets so the
+  // motion doesn't jitter. If head tracking fails, these values stay at 0
+  // and the tower simply rotates on its own without responding to input.
   const input = { x: 0, y: 0, targetX: 0, targetY: 0 };
-  setupMouseFallback(input);
   initHeadTracking(input).catch((e) => {
-    console.warn('Head tracking failed, using mouse fallback:', e);
-    status.tracking = 'mouse';
+    console.warn('Head tracking failed:', e);
+    status.tracking = 'failed';
+    status.error = e.message || 'camera unavailable';
     status.render();
   });
 
@@ -270,7 +299,7 @@ async function run() {
 
     camera.position.x = input.x * CONFIG.camera.parallaxX;
     camera.position.y = input.y * CONFIG.camera.parallaxY;
-    camera.position.z = CONFIG.camera.distance;
+    camera.position.z = cameraDistance;
     camera.lookAt(0, 0, 0);
 
     const headDriven = input.x * CONFIG.headRotation.influence;
@@ -564,14 +593,11 @@ function buildLocalVideoTextures() {
 }
 
 // =============================================================
-// INPUT
+// INPUT — head tracking only
 // =============================================================
-function setupMouseFallback(input) {
-  window.addEventListener('mousemove', (e) => {
-    input.targetX = (e.clientX / window.innerWidth - 0.5) * 2;
-    input.targetY = -(e.clientY / window.innerHeight - 0.5) * 2;
-  });
-}
+// The mouse fallback has been intentionally removed. Now the tower only
+// responds to head movement via the webcam. If the user denies camera
+// access, the tower still rotates on its own but won't tilt toward input.
 
 async function initHeadTracking(input) {
   const webcamEl = document.getElementById('webcam');

@@ -88,6 +88,27 @@ html, body {
   padding: 6px 10px;
 }
 
+/* ---------- About link (top right on main page) ---------- */
+#about-link {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 6px 10px;
+  text-decoration: none; /* remove default underline */
+  transition: color 200ms ease;
+}
+
+#about-link:hover {
+  color: #fff;
+}
+
 #loader {
   position: fixed;
   inset: 0;
@@ -141,4 +162,136 @@ html, body {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   margin: 0 0 20px 0;
+}
+
+/* =============================================================
+   ABOUT PAGE (about.html only)
+   These styles only apply when <body> has class "about-page".
+   ============================================================= */
+body.about-page {
+  overflow: auto; /* override the tower page's `overflow: hidden` so users can scroll if content gets long */
+  height: auto;
+  min-height: 100%;
+}
+
+/* Back link in the top left, styled like the HUD */
+#back-link {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 6px 10px;
+  text-decoration: none;
+  transition: color 200ms ease;
+}
+
+#back-link:hover {
+  color: #fff;
+}
+
+/* Main text container — centered column, generous line height */
+#about-page-content {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 220px 40px 80px; /* lots of top padding so content sits below the back link */
+  color: rgba(255, 255, 255, 0.85);
+}
+
+#about-page-content h1 {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: normal;
+  margin: 0 0 40px 0;
+}
+
+#about-page-content p {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: normal;
+  margin: 0 0 40px 0;
+}
+
+/* Credits block at bottom, back to the monospace HUD style */
+#about-page-content .about-meta {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* =============================================================
+   RESPONSIVE — three tiers
+   - default (above): laptop / desktop
+   - @media (max-width: 1024px): iPad / tablet
+   - @media (max-width: 640px): phone
+   Rules inside media queries only apply when the browser window
+   is at or below that width, overriding the defaults.
+   ============================================================= */
+
+/* ----- Tablet / iPad ----- */
+@media (max-width: 1024px) {
+  #about-page-content {
+    padding: 100px 32px 60px;
+  }
+
+  #about-page-content p {
+    font-size: 15px;
+  }
+}
+
+/* ----- Phone ----- */
+@media (max-width: 640px) {
+  /* Shrink the HUD so status + about link fit on one line */
+  #status,
+  #hint,
+  #about-link,
+  #back-link {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    padding: 5px 8px;
+  }
+
+  /* The Enter button on the intro overlay */
+  #start {
+    font-size: 11px;
+    padding: 12px 22px;
+    letter-spacing: 0.2em;
+  }
+
+  /* About page text tightens up */
+  #about-page-content {
+    padding: 80px 20px 60px;
+    max-width: 100%;
+  }
+
+  #about-page-content h1 {
+    margin-bottom: 28px;
+  }
+
+  #about-page-content p {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  #about-page-content .about-meta {
+    margin-top: 40px;
+  }
 }
