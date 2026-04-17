@@ -230,12 +230,13 @@ body.about-page {
 
 #about-page-content p {
   font-family: 'SF Mono', Menlo, monospace;
-  font-size: 10px;
-  letter-spacing: 0.15em;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  word-spacing: 0.15em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.5);
-  font-weight: normal;
-  margin: 0 0 40px 0;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 2.2;
+  margin: 0 0 32px 0;
 }
 
 #about-page-content .about-meta {
@@ -262,6 +263,10 @@ body.about-page {
 
   #about-page-content p {
     font-size: 15px;
+  }
+
+  #start {
+    transform: translateY(-2vh);
   }
 }
 
