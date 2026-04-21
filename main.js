@@ -112,21 +112,209 @@ const CONFIG = {
   headRotation: { influence: 1.6 },
   requireNASA: true,
   nasa: {
-    queries: [
-      'carina nebula', 'orion nebula', 'crab nebula', 'helix nebula',
-      'butterfly nebula', 'eagle nebula', 'lagoon nebula', 'ring nebula',
-      'andromeda galaxy', 'whirlpool galaxy', 'sombrero galaxy',
-      'pillars of creation', 'hubble deep field',
-      'webb telescope first images', 'black hole',
+    webbImagePageSize: 80,
+    hubbleVideoPageSize: 36,
+    hubbleVideoPages: 3,
+    fallbackWebbQueries: [
+      'James Webb nebula',
+      'Webb telescope galaxy',
+      'James Webb star cluster',
+      'James Webb deep field',
+    ],
+    fallbackHubbleVideoQueries: [
+      'Cloud 9 Starless Gas Cloud',
+      'Black Hole Tidal Disruption Event',
+      'Planetary Nebula NGC 2899',
+      'Hubble Milky Way star field',
+      'Egg Nebula visualization',
+      'HLX-1 animation',
+      'Fomalhaut video',
+      'Hubble planetary nebula zoom',
+      'Hubble colorful nebula animation',
+      'Hubble galaxy cluster flythrough',
     ],
     imageItemsPerQuery: 8,
-    videoQueries: [
-      'hubble nebula', 'carina nebula', 'james webb galaxy',
-      'black hole simulation', 'solar dynamics', 'pillars of creation',
+    videoItemsPerQuery: 4,
+    blockedMediaTitleTerms: [
+      'webb spectrum showcases galaxy',
+      'distant galaxy behind smacs 0723',
+      'smacs 0723',
     ],
-    videoItemsPerQuery: 2,
+    priorityVideoTitleTerms: [
+      'cloud 9, starless gas cloud',
+      'cloud 9 starless gas cloud',
+      'black hole tidal disruption event',
+      'planetary nebula ngc 2899',
+      'ngc 2899',
+    ],
+    imagePreferredTerms: [
+      'nebula',
+      'galaxy',
+      'cluster',
+      'deep field',
+      'star',
+      'stars',
+      'starburst',
+      'quasar',
+      'planetary nebula',
+      'spiral',
+      'cosmic cliffs',
+      'pillars',
+      'carina',
+      'orion',
+      'tarantula',
+      'webb',
+      'james webb',
+      'milky way',
+    ],
+    imageForbiddenTerms: [
+      'spectrum',
+      'spectra',
+      'showcase',
+      'showcases',
+      'annotated',
+      'annotation',
+      'label',
+      'labels',
+      'diagram',
+      'chart',
+      'graph',
+      'graphical',
+      'infographic',
+      'map',
+      'comparison',
+      'compare',
+      'caption',
+      'captions',
+      'title card',
+      'poster',
+      'brochure',
+      'illustration',
+      'rendering',
+      'artist concept',
+    ],
+    videoPreferredTerms: [
+      'visualization',
+      'animation',
+      'flyby',
+      'fly-through',
+      'zoom',
+      'pan',
+      'nebula',
+      'galaxy',
+      'cluster',
+      'deep field',
+      'supernova',
+      'star',
+      'stars',
+      'cosmic',
+      'universe',
+      'pillars',
+      'carina',
+      'eagle',
+      'orion',
+      'helix',
+      'infrared',
+      'telescope view',
+      'space',
+      'planet',
+      'planets',
+      'planetary nebula',
+      'star field',
+      'starfield',
+      'milky way',
+      'wide field',
+      'vivid',
+      'colorful',
+      'purple',
+      'pink',
+      'magenta',
+      'teal',
+      'cyan',
+      'violet',
+    ],
+    videoForbiddenTerms: [
+      'astronaut',
+      'astronauts',
+      'person',
+      'people',
+      'human',
+      'face',
+      'portrait',
+      'interview',
+      'host',
+      'presenter',
+      'speaker',
+      'scientist',
+      'scientists',
+      'engineer',
+      'engineers',
+      'teacher',
+      'student',
+      'students',
+      'lecture',
+      'talk',
+      'discussion',
+      'podcast',
+      'news',
+      'press',
+      'event',
+      'ceremony',
+      'behind the scenes',
+      'behind-the-scenes',
+      'caption',
+      'captions',
+      'captioned',
+      'subtitle',
+      'subtitles',
+      'text overlay',
+      'on-screen text',
+      'lower third',
+      'logo',
+      'credits',
+      'credit roll',
+      'title card',
+      'label',
+      'labels',
+      'annotated',
+      'infographic',
+      'explainer',
+      'episode',
+      'showcase',
+      'showcases',
+      'structure',
+      'spectrum',
+      'spectra',
+      'title sequence',
+    ],
+    videoIntroSkip: { min: 0.18, max: 0.82 },
+    textBannerScan: {
+      maxDim: 256,
+      bandHeightRatio: 0.24,
+      minBrightRatio: 0.1,
+      maxBrightRatio: 0.58,
+      minTransitionRatio: 0.06,
+      minClusterRows: 4,
+    },
   },
-  swap: { minDelayMs: 1500, maxDelayMs: 5000, videoWeight: 0.5 },
+  mirror: {
+    cubeMapSize: 256,
+    captureShellRadius: 9,
+    coreRadius: 0.52,
+    coreScaleX: 1.08,
+    coreScaleY: 0.84,
+    wobbleSpeed: 0.55,
+    wobbleAmount: 0.05,
+    spinSpeed: 0.18,
+  },
+  swap: {
+    minDelayMs: 1500,
+    maxDelayMs: 5000,
+    videoWeight: 0.34,
+    maxPanelsPerVideo: 2,
+    recentVideoMemory: 12,
+    videoChoicePool: 12,
+  },
 };
 
 // =============================================================
@@ -204,6 +392,8 @@ async function run() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x000000, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping      = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
   scene.fog  = new THREE.Fog(0x000000, 6, 14);
@@ -217,24 +407,32 @@ async function run() {
   rim.position.set(3, 2, 4);
   scene.add(rim);
 
-  // ---------- load NASA images ----------
-  status.source = 'nasa';
+  // Create the webcam texture early. It feeds the hidden capture shell
+  // that the CubeCamera sees while building the mirror sculpture's env map.
+  const webcamEl  = document.getElementById('webcam');
+  const webcamTex = new THREE.VideoTexture(webcamEl);
+  webcamTex.colorSpace = THREE.SRGBColorSpace;
+  webcamTex.minFilter  = THREE.LinearFilter;
+  webcamTex.magFilter  = THREE.LinearFilter;
+
+  // ---------- load telescope media ----------
+  status.source = 'webb + hubble';
   status.render();
   loaderShow();
-  loaderLine('fetching NASA images (fast) + videos (background)...');
+  loaderLine('fetching Webb imagery + Hubble video source...');
 
   let images;
   try {
     images = await loadNASAImages();
-    if (images.length === 0) throw new Error('no NASA images resolved');
+    if (images.length === 0) throw new Error('no telescope images resolved');
     loaderLine(`✓ ${images.length} images ready, building tower`);
     loaderHide();
   } catch (e) {
-    console.error('NASA load failed:', e);
+    console.error('Telescope media load failed:', e);
     if (CONFIG.requireNASA) {
-      fatal('NASA load failed',
+      fatal('Telescope media load failed',
         `${e.message}\n\nOpen DevTools → Network tab, refresh, and look for ` +
-        `requests to images-api.nasa.gov.\nIf blocked, try incognito with extensions disabled.`);
+        `requests to webbtelescope.org or hubblesite.org.\nIf blocked, try incognito with extensions disabled.`);
       throw e;
     }
     throw e;
@@ -244,33 +442,27 @@ async function run() {
   const videoPool = [];
   loadNASAVideos().then((videos) => {
     videos.forEach((v) => videoPool.push(v));
-    console.log(`[NASA] ${videos.length} videos now in rotation`);
+    console.log(`[media] ${videos.length} Hubble videos now in rotation`);
   }).catch((e) => {
-    console.warn('NASA video pool failed (non-fatal):', e);
+    console.warn('Hubble video pool failed (non-fatal):', e);
   });
 
   // ---------- tower container ----------
   const tower = new THREE.Group();
   scene.add(tower);
+  const mirrorRig = createMirrorRig(scene, webcamTex);
+  tower.add(mirrorRig.rig);
 
   // These are mutable — they get replaced each time the pattern changes.
   let slabs = [];
   let allMaterials = [];
   let activePattern = null;   // reference to the current PATTERNS entry
-  let swapGeneration = 0;     // incremented on rebuild to stop old swap timers
 
   // ---------- build / rebuild the tower from a pattern ----------
-  // Geometry always comes from SLAB (fixed). Only motion behavior
-  // changes between patterns. On switch: old meshes are removed,
-  // new ones created, swap loop restarted.
   function buildFromPattern(patternName) {
     const pat = PATTERNS[patternName];
     activePattern = pat;
 
-    // Stop old swap timers by incrementing the generation counter
-    swapGeneration++;
-
-    // Remove old slabs from the scene and free their GPU memory
     slabs.forEach((slab) => {
       slab.children.forEach((mesh) => {
         mesh.geometry.dispose();
@@ -278,16 +470,14 @@ async function run() {
       });
       tower.remove(slab);
     });
-    slabs = [];
+    slabs        = [];
     allMaterials = [];
 
-    // Crop all image textures for the slab aspect ratio.
     const slabAspect = SLAB.width / SLAB.height;
     images.forEach((tex) => cropTextureToAspect(tex, slabAspect));
 
-    // Build new slabs
-    const halfCount = SLAB.count / 2;
-    const faceGeom  = new THREE.PlaneGeometry(1, 1);
+    const halfCount   = SLAB.count / 2;
+    const faceGeom    = new THREE.PlaneGeometry(1, 1);
     const totalPanels = SLAB.count * 4;
 
     for (let i = 0; i < SLAB.count; i++) {
@@ -303,10 +493,7 @@ async function run() {
 
       faceDefs.forEach((f, fIdx) => {
         const poolIdx = (i * 3 + fIdx * 5) % images.length;
-        const mat = new THREE.MeshBasicMaterial({
-          map: images[poolIdx],
-          side: THREE.DoubleSide,
-        });
+        const mat = new THREE.MeshBasicMaterial({ map: images[poolIdx], side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(faceGeom, mat);
         mesh.scale.set(f.w, SLAB.height, 1);
         mesh.position.set(Math.sin(f.rotY) * f.d, 0, Math.cos(f.rotY) * f.d);
@@ -407,14 +594,29 @@ async function run() {
     const k = (Math.PI * 2) / rot.waveLength;
 
     for (let i = 0; i < slabs.length; i++) {
-      // Wave: each slab twists by a sine offset based on its position
-      const wave = rot.waveAmplitude * Math.sin(k * i - rot.waveSpeed * t);
-      // Helix: a fixed angular offset per slab (0 for most patterns)
+      const wave  = rot.waveAmplitude * Math.sin(k * i - rot.waveSpeed * t);
       const helix = pat.helixOffset * i;
       slabs[i].rotation.y = baseRot + wave + helix;
     }
 
+    mirrorRig.sculpture.rotation.y = t * CONFIG.mirror.spinSpeed + input.x * 0.2;
+    mirrorRig.sculpture.rotation.x =
+      Math.sin(t * CONFIG.mirror.wobbleSpeed) * CONFIG.mirror.wobbleAmount + input.y * 0.08;
+
+    // ── Two-pass render ───────────────────────────────────────────────
+    // Pass 1: update the sculpture's environment map. The hidden shell
+    // carries the webcam feed so the CubeCamera captures the viewer and
+    // the rotating tower as one continuous reflected environment.
+    mirrorRig.sculpture.visible = false;
+    mirrorRig.captureShell.visible = webcamEl.readyState >= webcamEl.HAVE_CURRENT_DATA;
+    mirrorRig.cubeCamera.update(renderer, scene);
+
+    // Pass 2: draw the final frame the viewer sees.
+    mirrorRig.captureShell.visible = false;
+    mirrorRig.sculpture.visible = true;
+
     renderer.render(scene, camera);
+
     requestAnimationFrame(animate);
   }
   animate();
@@ -436,73 +638,359 @@ async function run() {
 
 function cropTextureToAspect(tex, slabAspect) {
   const img = tex.image;
-  if (!img || !img.width) return;
-  const imageAspect = img.width / img.height;
+  if (!img) return;
 
-  // How much of the image's height to use (1 = full height, 0.5 = half)
+  // HTMLVideoElement stores decoded dimensions in videoWidth/videoHeight.
+  // HTMLImageElement uses naturalWidth/naturalHeight (or width/height).
+  const w = img.videoWidth  || img.naturalWidth  || img.width  || 0;
+  const h = img.videoHeight || img.naturalHeight || img.height || 0;
+  if (!w || !h) return;
+
+  const imageAspect = w / h;
+
+  // Object-fit: cover — crop whichever axis overflows so the content
+  // fills the slab panel with no stretching and no black bars.
   const cropY = Math.min(1, imageAspect / slabAspect);
-  // How much of the image's width to use
   const cropX = Math.min(1, slabAspect / imageAspect);
 
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.center.set(0.5, 0.5);
   tex.repeat.set(cropX, cropY);
-  tex.offset.set((1 - cropX) / 2, (1 - cropY) / 2);
+  tex.offset.set(0.5 - cropX / 2, 0.5 - cropY / 2);
   tex.needsUpdate = true;
 }
 
 // =============================================================
-// NASA Image Library
+// HUBBLE + WEBB IMAGE & VIDEO LOADING
+// =============================================================
+// Primary sources: the official STScI HubbleSite and WebbTelescope APIs.
+// The tower now stays strict about source selection:
+// - panel stills: James Webb imagery only
+// - panel motion clips: Hubble video source only
+// NASA Images fallback queries are filtered the same way so unrelated
+// NASA collections do not leak into the rotation.
 // =============================================================
 
-async function loadNASAImages() {
-  const queries = CONFIG.nasa.queries;
-  const resultsPerQuery = await Promise.all(
-    queries.map((q) => searchImages(q, CONFIG.nasa.imageItemsPerQuery))
-  );
-  const urls = resultsPerQuery.flat();
+// ---------- helpers ----------
+function configureMediaTexture(tex) {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter  = THREE.LinearFilter;
+  tex.magFilter  = THREE.LinearFilter;
+  return tex;
+}
 
+function loadImageTexture(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (hasLikelyTextBannerInImage(img)) {
+        reject(new Error(`text-like overlay detected: ${url}`));
+        return;
+      }
+      const tex = configureMediaTexture(new THREE.Texture(img));
+      tex.needsUpdate = true;
+      resolve(tex);
+    };
+    img.onerror = () => reject(new Error(`img failed: ${url}`));
+    img.src = url;
+  });
+}
+
+function fixUrl(raw) {
+  if (!raw) return null;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  return raw.replace(/^http:\/\//, 'https://');
+}
+
+function dedupeByUrl(items) {
   const seen = new Set();
-  const unique = urls.filter(({ url }) => {
-    if (seen.has(url)) return false;
+  return items.filter(({ url }) => {
+    if (!url || seen.has(url)) return false;
     seen.add(url);
     return true;
   });
+}
 
-  if (unique.length === 0) {
-    throw new Error('no NASA images resolved from any query');
+function telescopeMetadataText(item) {
+  const meta = item?.data?.[0] || item || {};
+  const fields = [
+    meta.title,
+    meta.name,
+    meta.description,
+    meta.short_description,
+    meta.long_description,
+    meta.description_508,
+    meta.center,
+    meta.secondary_creator,
+    meta.credit,
+    meta.credits,
+    meta.photographer,
+    meta.location,
+    ...(Array.isArray(meta.keywords) ? meta.keywords : [meta.keywords].filter(Boolean)),
+  ];
+  return fields.filter(Boolean).join(' ').toLowerCase();
+}
+
+function metadataTextFor(...items) {
+  return items.map((item) => telescopeMetadataText(item)).filter(Boolean).join(' ');
+}
+
+function countMatches(haystack, terms) {
+  return terms.reduce((count, term) => count + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+function matchesRequiredTerms(item, requiredTerms) {
+  const haystack = metadataTextFor(item);
+  return requiredTerms.some((term) => haystack.includes(term));
+}
+
+function matchesAnyTerm(haystack, terms) {
+  return terms.some((term) => haystack.includes(term));
+}
+
+function matchesBlockedMedia(...items) {
+  const haystack = metadataTextFor(...items);
+  return haystack && matchesAnyTerm(haystack, CONFIG.nasa.blockedMediaTitleTerms);
+}
+
+function isPriorityVideoCandidate(...items) {
+  const haystack = metadataTextFor(...items);
+  return haystack && matchesAnyTerm(haystack, CONFIG.nasa.priorityVideoTitleTerms);
+}
+
+function isCleanCosmicImageCandidate(...items) {
+  const haystack = metadataTextFor(...items);
+  if (!haystack) return false;
+  if (matchesBlockedMedia(...items)) return false;
+
+  const hasPreferred = matchesAnyTerm(haystack, CONFIG.nasa.imagePreferredTerms);
+  const hasForbidden = matchesAnyTerm(haystack, CONFIG.nasa.imageForbiddenTerms);
+  return hasPreferred && !hasForbidden;
+}
+
+function isCleanCosmicVideoCandidate(...items) {
+  const haystack = metadataTextFor(...items);
+  if (!haystack) return false;
+  if (matchesBlockedMedia(...items)) return false;
+
+  const isPriority = isPriorityVideoCandidate(...items);
+  const hasPreferred = matchesAnyTerm(haystack, CONFIG.nasa.videoPreferredTerms);
+  const hasForbidden = matchesAnyTerm(haystack, CONFIG.nasa.videoForbiddenTerms);
+  return (hasPreferred || isPriority) && (!hasForbidden || isPriority);
+}
+
+function scoreCosmicVideoCandidate(...items) {
+  const haystack = metadataTextFor(...items);
+  if (!haystack || !isCleanCosmicVideoCandidate(...items)) return -1;
+
+  let score = countMatches(haystack, CONFIG.nasa.videoPreferredTerms) * 3;
+  if (isPriorityVideoCandidate(...items)) score += 30;
+  if (haystack.includes('milky way')) score += 8;
+  if (haystack.includes('planetary nebula')) score += 7;
+  if (haystack.includes('star field') || haystack.includes('starfield')) score += 5;
+  if (haystack.includes('planet') || haystack.includes('planets')) score += 4;
+  if (haystack.includes('purple') || haystack.includes('pink') || haystack.includes('magenta')) score += 6;
+  if (haystack.includes('teal') || haystack.includes('cyan') || haystack.includes('violet')) score += 4;
+  return score;
+}
+
+function hasLikelyTextBannerInImage(image) {
+  try {
+    const sourceWidth = image.naturalWidth || image.videoWidth || image.width || 0;
+    const sourceHeight = image.naturalHeight || image.videoHeight || image.height || 0;
+    if (!sourceWidth || !sourceHeight) return false;
+
+    const maxDim = CONFIG.nasa.textBannerScan.maxDim;
+    const scale = Math.min(1, maxDim / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(32, Math.round(sourceWidth * scale));
+    const height = Math.max(32, Math.round(sourceHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+
+    ctx.drawImage(image, 0, 0, width, height);
+    const { data } = ctx.getImageData(0, 0, width, height);
+    const bandHeight = Math.max(18, Math.floor(height * CONFIG.nasa.textBannerScan.bandHeightRatio));
+
+    return (
+      bandLooksLikeText(data, width, 0, bandHeight) ||
+      bandLooksLikeText(data, width, Math.max(0, height - bandHeight), height)
+    );
+  } catch (err) {
+    console.warn('[media] text banner check skipped:', err);
+    return false;
+  }
+}
+
+function bandLooksLikeText(data, width, startRow, endRow) {
+  let clusterRows = 0;
+  for (let y = startRow; y < endRow; y++) {
+    let brightPixels = 0;
+    let transitions = 0;
+    let prevIsText = false;
+
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const alpha = data[idx + 3];
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      const isTextPixel = isPotentialTextPixel(r, g, b, alpha);
+      if (isTextPixel) brightPixels++;
+      if (x > 0 && isTextPixel !== prevIsText) transitions++;
+      prevIsText = isTextPixel;
+    }
+
+    const brightRatio = brightPixels / width;
+    const transitionRatio = transitions / width;
+    const looksLikeTextRow =
+      brightRatio >= CONFIG.nasa.textBannerScan.minBrightRatio &&
+      brightRatio <= CONFIG.nasa.textBannerScan.maxBrightRatio &&
+      transitionRatio >= CONFIG.nasa.textBannerScan.minTransitionRatio;
+
+    clusterRows = looksLikeTextRow ? clusterRows + 1 : 0;
+    if (clusterRows >= CONFIG.nasa.textBannerScan.minClusterRows) return true;
   }
 
-  loaderLine(`loading ${unique.length} image textures...`);
+  return false;
+}
 
-  function loadImageTexture(url) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const tex = new THREE.Texture(img);
-        tex.needsUpdate = true;
-        resolve(tex);
-      };
-      img.onerror = reject;
-      img.src = url;
+function isPotentialTextPixel(r, g, b, alpha) {
+  if (alpha < 24) return false;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const saturation = max === 0 ? 0 : (max - min) / max;
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+  return luminance > 170 || (luminance > 120 && saturation > 0.45 && max > 165);
+}
+
+function pickPreferredMp4(files) {
+  return (
+    files.find((f) => /~mobile\.mp4$/i.test(f)) ||
+    files.find((f) => /~small\.mp4$/i.test(f)) ||
+    files.find((f) => /~preview\.mp4$/i.test(f)) ||
+    files.find((f) => /\.mp4$/i.test(f) && !/~orig\.mp4$/i.test(f)) ||
+    files.find((f) => /\.mp4$/i.test(f))
+  );
+}
+
+function createVideoTexture(url, label, score = 0) {
+  const video = document.createElement('video');
+  video.crossOrigin = 'anonymous';
+  video.loop        = true;
+  video.muted       = true;
+  video.playsInline = true;
+  video.preload     = 'auto';
+  video.src         = url;
+
+  const tex = configureMediaTexture(new THREE.VideoTexture(video));
+  tex.userData = {
+    ...(tex.userData || {}),
+    mediaType: 'video',
+    title: label || url,
+    score,
+  };
+  let seekAttempts = 0;
+  let playbackStarted = false;
+
+  function startPlayback() {
+    if (playbackStarted) return;
+    playbackStarted = true;
+    video.play().catch((err) => {
+      console.warn(`[media] autoplay blocked for ${label || url}:`, err);
     });
   }
+
+  function seekToCandidateMoment() {
+    if (!Number.isFinite(video.duration) || video.duration <= 1) {
+      startPlayback();
+      return;
+    }
+
+    const startMin = CONFIG.nasa.videoIntroSkip.min;
+    const startMax = CONFIG.nasa.videoIntroSkip.max;
+    const normalized = startMin + Math.random() * (startMax - startMin);
+    const safeSeek = Math.max(0, video.duration - 0.25);
+    video.currentTime = Math.min(safeSeek, video.duration * normalized);
+  }
+
+  video.addEventListener('loadedmetadata', () => {
+    cropTextureToAspect(tex, SLAB.width / SLAB.height);
+    seekToCandidateMoment();
+  }, { once: true });
+
+  video.addEventListener('seeked', () => {
+    if (seekAttempts < 4 && hasLikelyTextBannerInImage(video)) {
+      seekAttempts++;
+      seekToCandidateMoment();
+      return;
+    }
+    startPlayback();
+  });
+
+  video.addEventListener('loadeddata', () => {
+    console.log(`[media] video ready: ${label || url}`);
+  });
+
+  return tex;
+}
+
+// ---------- images ----------
+async function loadNASAImages() {
+  const webbUrls = [];
+
+  try {
+    loaderLine('fetching Webb image list...');
+    const res = await fetch(
+      `https://webbtelescope.org/api/v3/images/all?page=1&per_page=${CONFIG.nasa.webbImagePageSize}`
+    );
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const list = await res.json();
+    for (const item of list) {
+      if (!isCleanCosmicImageCandidate(item)) continue;
+      const url = fixUrl(item.thumbnail_url);
+      if (url) webbUrls.push({ url, title: item.name || 'webb' });
+    }
+    loaderLine(`  ✓ Webb after clean-image filter: ${webbUrls.length}`);
+  } catch (e) {
+    loaderLine(`  ✗ Webb API: ${e.message}`);
+  }
+
+  if (webbUrls.length === 0) {
+    loaderLine('Webb API unavailable — trying strict NASA Webb search...');
+    const parts = await Promise.all(
+      CONFIG.nasa.fallbackWebbQueries.map((query) =>
+        searchStrictNASAImages(query, CONFIG.nasa.imageItemsPerQuery, ['james webb', 'webb'])
+      )
+    );
+    parts.flat().forEach((item) => webbUrls.push(item));
+  }
+
+  if (webbUrls.length === 0) {
+    throw new Error('no James Webb imagery resolved');
+  }
+
+  const unique = dedupeByUrl(webbUrls);
+  loaderLine(`loading ${unique.length} Webb textures...`);
 
   let loadedCount = 0;
   const textures = await Promise.all(unique.map(({ url, title }, idx) =>
     loadImageTexture(url)
       .then((tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.minFilter  = THREE.LinearFilter;
-        tex.magFilter  = THREE.LinearFilter;
         loadedCount++;
-        if (loadedCount % 10 === 0) {
-          loaderLine(`  loaded ${loadedCount}/${unique.length}`);
-        }
+        if (loadedCount % 10 === 0) loaderLine(`  loaded ${loadedCount}/${unique.length}`);
         return tex;
       })
       .catch(() => {
-        console.warn(`[NASA] image ${idx} failed: ${title}`);
+        console.warn(`[Webb] img ${idx} failed: ${title}`);
         return null;
       })
   ));
@@ -511,116 +999,159 @@ async function loadNASAImages() {
 }
 
 // ---------- videos ----------
-
 async function loadNASAVideos() {
-  const queries = CONFIG.nasa.videoQueries;
-  const resultsPerQuery = await Promise.all(
-    queries.map((q) => resolveVideoUrls(q, CONFIG.nasa.videoItemsPerQuery))
-  );
-  const urls = resultsPerQuery.flat();
+  const hubbleVideos = [];
 
-  const seen = new Set();
-  const unique = urls.filter(({ url }) => {
-    if (seen.has(url)) return false;
-    seen.add(url);
-    return true;
-  });
-
-  console.log(`[NASA] fetching ${unique.length} videos in background`);
-
-  const videoTextures = unique.map(({ url, title }, idx) => {
-    const v = document.createElement('video');
-    v.crossOrigin  = 'anonymous';
-    v.loop         = true;
-    v.muted        = true;
-    v.playsInline  = true;
-    v.preload      = 'auto';
-    v.src          = url;
-
-    v.addEventListener('loadeddata', () => {
-      v.currentTime = Math.random() * Math.max(0, v.duration - 1);
-      console.log(`[NASA] video loaded: ${title}`);
-    });
-    v.addEventListener('error', () => {
-      console.error(`[NASA] video ${idx} failed: ${title}`);
-    });
-    v.play().catch(() => {});
-
-    const tex = new THREE.VideoTexture(v);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter  = THREE.LinearFilter;
-    tex.magFilter  = THREE.LinearFilter;
-    return tex;
-  });
-
-  return videoTextures;
-}
-
-async function resolveVideoUrls(query, count) {
   try {
-    const searchUrl =
-      `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=video`;
-    const searchRes  = await fetch(searchUrl);
-    if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
-    const searchData = await searchRes.json();
-
-    const items = searchData?.collection?.items || [];
-    if (items.length === 0) return [];
-
-    const results = [];
-    for (let i = 0; i < Math.min(items.length, count * 2); i++) {
-      if (results.length >= count) break;
-      const item  = items[i];
-      const title = item?.data?.[0]?.title || query;
-      const manifestUrl = (item.href || '').replace(/^http:\/\//, 'https://');
-      if (!manifestUrl) continue;
-      try {
-        const manifestRes = await fetch(manifestUrl);
-        if (!manifestRes.ok) continue;
-        const files = await manifestRes.json();
-        const mp4 = (
-          files.find((f) => /~mobile\.mp4$/i.test(f)) ||
-          files.find((f) => /~small\.mp4$/i.test(f))  ||
-          files.find((f) => /~preview\.mp4$/i.test(f)) ||
-          files.find((f) => /\.mp4$/i.test(f) && !/~orig\.mp4$/i.test(f)) ||
-          files.find((f) => /\.mp4$/i.test(f))
+    loaderLine('fetching Hubble video pages...');
+    const pageNumbers = Array.from(
+      { length: CONFIG.nasa.hubbleVideoPages },
+      (_, idx) => idx + 1
+    );
+    const pageLists = await Promise.all(
+      pageNumbers.map(async (page) => {
+        const listRes = await fetch(
+          `https://hubblesite.org/api/v3/videos?page=${page}&per_page=${CONFIG.nasa.hubbleVideoPageSize}`
         );
-        if (mp4) {
-          results.push({ url: mp4.replace(/^http:\/\//, 'https://'), title });
-        }
-      } catch { continue; }
+        if (!listRes.ok) throw new Error(`list ${listRes.status} (page ${page})`);
+        const list = await listRes.json();
+        loaderLine(`  ✓ Hubble page ${page}: ${list.length} items`);
+        return list;
+      })
+    );
+    const list = pageLists.flat();
+
+    const details = await Promise.allSettled(
+      list.map((item) =>
+        fetch(`https://hubblesite.org/api/v3/video/${item.id}`)
+          .then((r) => r.ok ? r.json() : null)
+          .catch(() => null)
+      )
+    );
+
+    for (let i = 0; i < details.length; i++) {
+      const detail = details[i];
+      if (detail.status !== 'fulfilled' || !detail.value) continue;
+      if (!isCleanCosmicVideoCandidate(list[i], detail.value)) continue;
+
+      const files = detail.value.video_files || [];
+      const mp4 = (
+        files.find((f) => /H\.264/i.test(f.format || '') && f.width && f.width <= 1280) ||
+        files.find((f) => /H\.264|h264/i.test(f.format || '') && f.file_url) ||
+        files.find((f) => /mp4/i.test(f.format || '') && f.file_url)
+      );
+      if (!mp4) continue;
+
+      const url = fixUrl(mp4.file_url);
+      if (!url) continue;
+      hubbleVideos.push({
+        url,
+        title: list[i]?.name || detail.value?.name || 'hubble video',
+        score: scoreCosmicVideoCandidate(list[i], detail.value),
+      });
     }
-    return results;
+
+    hubbleVideos.sort((a, b) => b.score - a.score);
+    loaderLine(`  ✓ Hubble videos after clean-content filter: ${hubbleVideos.length}`);
   } catch (e) {
-    console.warn(`[NASA] video query "${query}" failed:`, e.message);
+    loaderLine(`  ✗ Hubble video API: ${e.message}`);
+  }
+
+  if (hubbleVideos.length === 0) {
+    loaderLine('Hubble API unavailable — trying strict NASA Hubble video search...');
+    const parts = await Promise.all(
+      CONFIG.nasa.fallbackHubbleVideoQueries.map((query) =>
+        resolveStrictNASAVideoUrls(query, CONFIG.nasa.videoItemsPerQuery, ['hubble'])
+      )
+    );
+    parts.flat().forEach((item) => hubbleVideos.push(item));
+  }
+
+  const unique = dedupeByUrl(
+    [...hubbleVideos].sort((a, b) => (b.score || 0) - (a.score || 0))
+  );
+  if (unique.length === 0) {
+    loaderLine('  no Hubble videos passed the no-people / no-text filter');
     return [];
   }
+
+  unique.sort((a, b) => (b.score || 0) - (a.score || 0));
+  loaderLine(`preparing ${unique.length} Hubble videos with priority favorites + better spread...`);
+  return unique.map(({ url, title, score }) => createVideoTexture(url, title, score));
 }
 
-async function searchImages(query, count) {
+async function searchStrictNASAImages(query, count, requiredTerms) {
   try {
     const searchUrl =
       `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
     loaderLine(`  "${query}" searching...`);
-    const searchRes  = await fetch(searchUrl);
+    const searchRes = await fetch(searchUrl);
     if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
     const searchData = await searchRes.json();
 
-    const items = (searchData?.collection?.items || []).slice(0, count);
-    if (items.length === 0) throw new Error(`no items for "${query}"`);
+    const items = (searchData?.collection?.items || [])
+      .filter((item) => matchesRequiredTerms(item, requiredTerms))
+      .filter((item) => isCleanCosmicImageCandidate(item))
+      .slice(0, count);
+    if (items.length === 0) throw new Error(`no ${requiredTerms.join('/')} items`);
 
     const results = items.map((item) => {
       const title = item?.data?.[0]?.title || query;
-      const link  = item?.links?.[0]?.href;
+      const link = fixUrl(item?.links?.[0]?.href);
       if (!link) return null;
-      return { url: link.replace(/^http:\/\//, 'https://'), title };
+      return { url: link, title };
     }).filter(Boolean);
 
     loaderLine(`  ✓ "${query}" → ${results.length} images`);
     return results;
   } catch (e) {
     loaderLine(`  ✗ "${query}": ${e.message}`);
-    console.error(`[NASA] query "${query}" failed:`, e.message);
+    console.error(`[NASA] image query "${query}" failed:`, e.message);
+    return [];
+  }
+}
+
+async function resolveStrictNASAVideoUrls(query, count, requiredTerms) {
+  try {
+    const searchUrl =
+      `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=video`;
+    const searchRes = await fetch(searchUrl);
+    if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
+    const searchData = await searchRes.json();
+
+    const items = (searchData?.collection?.items || [])
+      .filter((item) => matchesRequiredTerms(item, requiredTerms))
+      .filter((item) => isCleanCosmicVideoCandidate(item));
+    if (items.length === 0) return [];
+
+    const results = [];
+    for (let i = 0; i < Math.min(items.length, count * 3); i++) {
+      if (results.length >= count) break;
+      const item = items[i];
+      const title = item?.data?.[0]?.title || query;
+      const manifestUrl = fixUrl(item.href || '');
+      if (!manifestUrl) continue;
+
+      try {
+        const manifestRes = await fetch(manifestUrl);
+        if (!manifestRes.ok) continue;
+        const files = await manifestRes.json();
+        const mp4 = pickPreferredMp4(files);
+        if (mp4) {
+          results.push({
+            url: fixUrl(mp4),
+            title,
+            score: scoreCosmicVideoCandidate(item),
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return results.sort((a, b) => (b.score || 0) - (a.score || 0));
+  } catch (e) {
+    console.warn(`[NASA] video query "${query}" failed:`, e.message);
     return [];
   }
 }
@@ -638,23 +1169,99 @@ let swapGeneration = 0;
 
 function startSwapping(materials, images, videoPool, slabAspect) {
   const gen = ++swapGeneration;
-  const { minDelayMs, maxDelayMs, videoWeight } = CONFIG.swap;
+  const {
+    minDelayMs,
+    maxDelayMs,
+    videoWeight,
+    maxPanelsPerVideo,
+    recentVideoMemory,
+    videoChoicePool,
+  } = CONFIG.swap;
 
-  function pickTexture() {
-    if (videoPool.length > 0 && Math.random() < videoWeight) {
-      const tex = videoPool[Math.floor(Math.random() * videoPool.length)];
-      cropTextureToAspect(tex, slabAspect);
-      return tex;
+  const videoUsage = new Map();
+  const recentVideos = [];
+
+  function isVideoTexture(tex) {
+    return !!tex?.userData && tex.userData.mediaType === 'video';
+  }
+
+  function videoUseCount(tex) {
+    return videoUsage.get(tex) || 0;
+  }
+
+  function noteVideoUse(prevTex, nextTex) {
+    if (isVideoTexture(prevTex)) {
+      const nextCount = Math.max(0, videoUseCount(prevTex) - 1);
+      if (nextCount === 0) videoUsage.delete(prevTex);
+      else videoUsage.set(prevTex, nextCount);
     }
-    return images[Math.floor(Math.random() * images.length)];
+
+    if (isVideoTexture(nextTex)) {
+      videoUsage.set(nextTex, videoUseCount(nextTex) + 1);
+      recentVideos.push(nextTex);
+      while (recentVideos.length > recentVideoMemory) recentVideos.shift();
+    }
+  }
+
+  function pickVideoTexture(currentMap) {
+    if (videoPool.length === 0) return null;
+
+    let candidates = videoPool.filter((tex) =>
+      tex !== currentMap &&
+      videoUseCount(tex) < maxPanelsPerVideo &&
+      !recentVideos.includes(tex)
+    );
+
+    if (candidates.length === 0) {
+      candidates = videoPool.filter((tex) =>
+        tex !== currentMap && videoUseCount(tex) < maxPanelsPerVideo
+      );
+    }
+
+    if (candidates.length === 0) {
+      candidates = videoPool.filter((tex) => tex !== currentMap);
+    }
+
+    if (candidates.length === 0) candidates = videoPool.slice();
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => {
+      const usageDiff = videoUseCount(a) - videoUseCount(b);
+      if (usageDiff !== 0) return usageDiff;
+      return (b.userData?.score || 0) - (a.userData?.score || 0);
+    });
+
+    const pool = candidates.slice(0, Math.min(videoChoicePool, candidates.length));
+    const tex = pool[Math.floor(Math.random() * pool.length)];
+    cropTextureToAspect(tex, slabAspect);
+    return tex;
+  }
+
+  function pickImageTexture(currentMap) {
+    const candidates = images.filter((tex) => tex !== currentMap);
+    if (candidates.length === 0) return images[0];
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function pickTexture(currentMap) {
+    if (videoPool.length > 0 && Math.random() < videoWeight) {
+      const videoTex = pickVideoTexture(currentMap);
+      if (videoTex) return videoTex;
+    }
+    return pickImageTexture(currentMap);
   }
 
   function scheduleSwap(mat) {
     const delay = minDelayMs + Math.random() * (maxDelayMs - minDelayMs);
     setTimeout(() => {
-      // If the pattern changed since this timer was set, stop
       if (gen !== swapGeneration) return;
-      mat.map = pickTexture();
+      const nextMap = pickTexture(mat.map);
+      if (nextMap === mat.map) {
+        scheduleSwap(mat);
+        return;
+      }
+      noteVideoUse(mat.map, nextMap);
+      mat.map = nextMap;
       mat.needsUpdate = true;
       scheduleSwap(mat);
     }, delay);
@@ -669,7 +1276,58 @@ function startSwapping(materials, images, videoPool, slabAspect) {
 }
 
 // =============================================================
-// INPUT — head tracking only
+// MIRROR SCULPTURE
+// =============================================================
+function createMirrorRig(scene, webcamTex) {
+  const rig = new THREE.Group();
+
+  const cubeTarget = new THREE.WebGLCubeRenderTarget(CONFIG.mirror.cubeMapSize, {
+    generateMipmaps: true,
+    minFilter: THREE.LinearMipmapLinearFilter,
+  });
+  const cubeCamera = new THREE.CubeCamera(0.05, 30, cubeTarget);
+  rig.add(cubeCamera);
+
+  const sculpture = new THREE.Group();
+  rig.add(sculpture);
+
+  const chrome = new THREE.MeshPhysicalMaterial({
+    envMap: cubeTarget.texture,
+    metalness: 1.0,
+    roughness: 0.02,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.35,
+  });
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(CONFIG.mirror.coreRadius, 96, 96),
+    chrome
+  );
+  core.scale.set(
+    CONFIG.mirror.coreScaleX,
+    CONFIG.mirror.coreScaleY,
+    CONFIG.mirror.coreScaleX
+  );
+  sculpture.add(core);
+
+  const captureShell = new THREE.Mesh(
+    new THREE.SphereGeometry(CONFIG.mirror.captureShellRadius, 64, 40),
+    new THREE.MeshBasicMaterial({
+      map: webcamTex,
+      side: THREE.BackSide,
+      toneMapped: false,
+      fog: false,
+    })
+  );
+  captureShell.rotation.y = Math.PI;
+  captureShell.visible = false;
+  scene.add(captureShell);
+
+  return { rig, sculpture, cubeCamera, captureShell };
+}
+// =============================================================
+// HEAD TRACKING — head position drives camera parallax + tower spin
 // =============================================================
 
 async function initHeadTracking(input) {
