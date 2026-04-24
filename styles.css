@@ -58,72 +58,103 @@ html, body {
   transform: scaleX(-1);
 }
 
-#hint {
-  position: fixed;
-  bottom: 16px;
-  left: 16px;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  color: rgba(255, 255, 255, 0.55);
-  text-transform: uppercase;
-  pointer-events: none;
-  font-family: 'SF Mono', Menlo, monospace;
-  background: rgba(0,0,0,0.5);
-  padding: 6px 10px;
-}
-
-#status {
+#top-hud {
   position: fixed;
   top: 16px;
   left: 16px;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  color: rgba(255, 255, 255, 0.55);
-  text-transform: uppercase;
-  pointer-events: none;
-  font-family: 'SF Mono', Menlo, monospace;
-  white-space: pre;
   z-index: 20;
-  background: rgba(0,0,0,0.5);
-  padding: 6px 10px;
-}
-
-/* ---------- Pattern label (bottom right) ---------- */
-#pattern-label {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  font-family: 'SF Mono', Menlo, monospace;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-  background: rgba(0, 0, 0, 0.5);
-  padding: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: calc(100vw - 180px);
   pointer-events: none;
-  z-index: 20;
+  opacity: 0;
+  visibility: hidden;
   transition: opacity 300ms ease;
 }
 
-/* ---------- About link (top right on main page) ---------- */
+#bottom-hud {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 300ms ease;
+}
+
+#bottom-right-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 300ms ease;
+}
+
+body.experience-live #bottom-hud {
+  opacity: 1;
+  visibility: visible;
+}
+
+body.experience-live #bottom-right-hud {
+  opacity: 1;
+  visibility: visible;
+}
+
+body.experience-live #top-hud {
+  opacity: 1;
+  visibility: visible;
+}
+
+.hud-chip,
+#about-link,
+#back-link {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(18, 20, 26, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 12px 18px 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 #about-link {
   position: fixed;
   top: 16px;
   right: 16px;
   z-index: 20;
-  font-family: 'SF Mono', Menlo, monospace;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-  background: rgba(0, 0, 0, 0.5);
-  padding: 6px 10px;
   text-decoration: none;
-  transition: color 200ms ease;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 300ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+body.experience-live #about-link {
+  opacity: 1;
+  visibility: visible;
 }
 
 #about-link:hover {
   color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 #loader {
@@ -196,13 +227,6 @@ body.about-page {
   top: 16px;
   left: 16px;
   z-index: 20;
-  font-family: 'SF Mono', Menlo, monospace;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-  background: rgba(0, 0, 0, 0.5);
-  padding: 6px 10px;
   text-decoration: none;
   transition: color 200ms ease;
 }
@@ -271,14 +295,18 @@ body.about-page {
 }
 
 @media (max-width: 640px) {
-  #status,
-  #hint,
+  #top-hud,
+  #bottom-hud,
+  #bottom-right-hud {
+    gap: 8px;
+  }
+
+  .hud-chip,
   #about-link,
-  #back-link,
-  #pattern-label {
+  #back-link {
     font-size: 9px;
-    letter-spacing: 0.1em;
-    padding: 5px 8px;
+    letter-spacing: 0.16em;
+    padding: 9px 12px 8px;
   }
 
   #start {
@@ -296,6 +324,23 @@ body.about-page {
   #loader-title {
     font-size: 11px;
     margin-bottom: 16px;
+  }
+
+  #top-hud {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: calc(100vw - 116px);
+  }
+
+  #bottom-hud {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+  }
+
+  #bottom-right-hud {
+    flex-direction: column;
+    align-items: flex-end;
   }
 
   #about-page-content {

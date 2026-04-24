@@ -9,21 +9,30 @@
 <body>
   <canvas id="scene"></canvas>
   <video id="webcam" autoplay playsinline muted></video>
-  <div id="hint">move your head</div>
+
+  <div id="top-hud">
+    <div id="tracking-status" class="hud-chip"></div>
+    <div id="hand-status" class="hud-chip"></div>
+  </div>
+
+  <div id="bottom-right-hud">
+    <div id="source-status" class="hud-chip"></div>
+    <div id="assets-status" class="hud-chip"></div>
+  </div>
+
+  <a id="about-link" class="hud-chip" href="about.html">about</a>
+
+  <div id="bottom-hud">
+    <div id="hint" class="hud-chip">move your head</div>
+    <div id="pattern-label" class="hud-chip">open hand</div>
+  </div>
 
   <div id="overlay">
     <button id="start">Enter</button>
   </div>
 
-  <div id="status"></div>
-
-  <!-- Pattern name indicator (bottom right) -->
-  <div id="pattern-label"></div>
-
-  <a id="about-link" href="about.html">About</a>
-
   <div id="loader">
-    <div id="loader-title">NASA Archive</div>
+    <div id="loader-title">Video Archive</div>
     <div id="loader-log"></div>
   </div>
 
