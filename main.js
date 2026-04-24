@@ -139,8 +139,12 @@ const CONFIG = {
     manifestUrl: './local-media/videos/manifest.json',
     numericProbeMax: 40,
   },
+  upload: {
+    maxVideos: 15,
+    processingDelayMs: 1200,
+  },
   sphereOrbit: {
-    speed: 0.32,
+    speed: 0.46,
     size: 0.48,
     clearance: 0.1,
     radialDrift: 0,
@@ -170,21 +174,27 @@ const CONFIG = {
       'james webb pillars of creation',
     ],
     imageItemsPerQuery: 6,
-    // Videos from Hubble and Webb playlists/collections only
+    // Video searches are kept object/visualization-focused to avoid NASA
+    // title cards, broadcasts, interviews, logos, and people.
     videoQueries: [
-      'hubble space telescope',
       'hubble nebula visualization',
       'hubble galaxy flyby',
-      'james webb space telescope',
-      'webb telescope galaxy',
+      'hubble deep field animation',
+      'hubble star cluster visualization',
+      'webb nebula visualization',
+      'webb galaxy visualization',
+      'james webb deep field visualization',
+      'cosmic nebula animation',
     ],
-    videoItemsPerQuery: 3,
+    videoItemsPerQuery: 2,
   },
   swap: {
     minDelayMs: 1500,
     maxDelayMs: 5000,
     videoWeight: 0.5,
     localVideoBias: 0.72,
+    uploadedVideoBias: 0.3,
+    videoPanelSpanChance: 0.08,
   },
 };
 
@@ -199,9 +209,29 @@ const fatalEl   = document.getElementById('fatal');
 
 function loaderShow() { loaderEl.classList.add('show'); }
 function loaderHide() { loaderEl.classList.remove('show'); }
+function formatLoaderMessage(msg) {
+  return String(msg)
+    .trimStart()
+    .replace('fetching NASA images (fast) + videos (background)...', 'fetching NASA images + videos...')
+    .replace('STScI APIs unavailable — falling back to NASA Images API...', 'using NASA Images API fallback...')
+    .replace(/: no items for ".*"$/, ': no items');
+}
+
 function loaderLine(msg) {
   const t = new Date().toISOString().slice(11, 19);
-  loaderLog.textContent += `[${t}] ${msg}\n`;
+  const row = document.createElement('div');
+  row.className = 'loader-log-line';
+
+  const time = document.createElement('span');
+  time.className = 'loader-log-time';
+  time.textContent = `[${t}]`;
+
+  const message = document.createElement('span');
+  message.className = 'loader-log-message';
+  message.textContent = formatLoaderMessage(msg);
+
+  row.append(time, message);
+  loaderLog.append(row);
   console.log(`[loader] ${msg}`);
 }
 function fatal(title, details) {
@@ -213,26 +243,211 @@ function fatal(title, details) {
 // =============================================================
 // STATUS HUD
 // =============================================================
-const sourceStatusEl = document.getElementById('source-status');
+const addAssetsButton = document.getElementById('add-assets-button');
 const assetsStatusEl = document.getElementById('assets-status');
 const trackingStatusEl = document.getElementById('tracking-status');
 const handStatusEl = document.getElementById('hand-status');
 const patternLabelEl = document.getElementById('pattern-label');
+const assetModalEl = document.getElementById('asset-modal');
+const assetDialogEl = document.getElementById('asset-dialog');
+const assetModalClose = document.getElementById('asset-modal-close');
+const assetFileInput = document.getElementById('asset-file-input');
+const assetSelectButton = document.getElementById('asset-select-button');
+const assetShowButton = document.getElementById('asset-show-button');
+const assetUploadStatusEl = document.getElementById('asset-upload-status');
+const assetFileListEl = document.getElementById('asset-file-list');
 
 const status = {
-  source: 'local',
   assets: 0, total: 0,
+  uploads: 0,
   tracking: 'off',
   hand: 'hand: 0/5',
   error: '',
   render() {
-    sourceStatusEl.textContent = `source ${this.source}`;
-    assetsStatusEl.textContent = `assets ${this.assets}/${this.total}`;
+    assetsStatusEl.textContent = `uploads ${this.uploads}/${CONFIG.upload.maxVideos}`;
     trackingStatusEl.textContent = `tracking ${this.tracking}`;
     handStatusEl.textContent = this.hand || 'hand: 0/5';
   },
 };
 status.render();
+
+function setupAssetUploads({
+  allVideoPool,
+  uploadedVideoPool,
+  getMaterials,
+  getSlabAspect,
+}) {
+  if (
+    !addAssetsButton ||
+    !assetModalEl ||
+    !assetDialogEl ||
+    !assetFileInput ||
+    !assetSelectButton ||
+    !assetShowButton
+  ) {
+    return;
+  }
+
+  const uploads = [];
+  let assetMessage = '';
+  let isProcessingUploads = false;
+
+  addAssetsButton.disabled = false;
+
+  function updateUploadUI(message = assetMessage) {
+    assetMessage = message;
+    status.uploads = uploads.length;
+    status.render();
+
+    const remaining = Math.max(0, CONFIG.upload.maxVideos - uploads.length);
+    const pendingCount = uploads.filter(({ texture }) => !texture).length;
+    if (assetSelectButton) assetSelectButton.disabled = remaining === 0 || isProcessingUploads;
+    assetShowButton.disabled = pendingCount === 0 || isProcessingUploads;
+    assetShowButton.textContent = isProcessingUploads ? 'processing' : 'show on tower';
+
+    if (assetUploadStatusEl) {
+      assetUploadStatusEl.textContent =
+        `${uploads.length}/${CONFIG.upload.maxVideos} mp4` +
+        (message ? ` / ${message}` : '');
+      assetUploadStatusEl.classList.toggle('processed', message === 'processed');
+      assetUploadStatusEl.classList.toggle('processing', message === 'processing');
+    }
+
+    if (assetFileListEl) {
+      assetFileListEl.replaceChildren(
+        ...uploads.map(({ name }) => {
+          const item = document.createElement('div');
+          item.className = 'asset-file-name';
+          item.textContent = name;
+          return item;
+        })
+      );
+    }
+  }
+
+  function openAssetModal() {
+    assetModalEl.classList.add('open');
+    assetModalEl.setAttribute('aria-hidden', 'false');
+    addAssetsButton.setAttribute('aria-expanded', 'true');
+    updateUploadUI();
+    assetSelectButton.focus({ preventScroll: true });
+  }
+
+  function closeAssetModal() {
+    assetModalEl.classList.remove('open');
+    assetModalEl.setAttribute('aria-hidden', 'true');
+    addAssetsButton.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleAssetModal() {
+    if (assetModalEl.classList.contains('open')) {
+      closeAssetModal();
+      return;
+    }
+    openAssetModal();
+  }
+
+  function handleAssetFiles(fileList) {
+    if (isProcessingUploads) return;
+
+    const files = Array.from(fileList || []);
+    const mp4Files = files.filter(isMP4Upload);
+    const remaining = CONFIG.upload.maxVideos - uploads.length;
+
+    if (remaining <= 0) {
+      updateUploadUI(`limit ${CONFIG.upload.maxVideos}`);
+      return;
+    }
+
+    const accepted = mp4Files.slice(0, remaining);
+    if (accepted.length === 0) {
+      updateUploadUI(files.length > 0 ? 'mp4 only' : '');
+      return;
+    }
+
+    accepted.forEach((file) => {
+      uploads.push({ name: file.name, file, objectUrl: null, texture: null });
+    });
+
+    const skipped = files.length - accepted.length;
+    updateUploadUI(skipped > 0 ? `${skipped} skipped` : '');
+  }
+
+  function showUploadsOnTower() {
+    const pendingUploads = uploads.filter(({ texture }) => !texture);
+    if (pendingUploads.length === 0 || isProcessingUploads) return;
+
+    isProcessingUploads = true;
+    updateUploadUI('processing');
+
+    window.setTimeout(() => {
+      const slabAspect = getSlabAspect();
+      const textures = pendingUploads.map((upload) => {
+        const objectUrl = URL.createObjectURL(upload.file);
+        const texture = createVideoTexture(objectUrl, slabAspect, upload.name, 'upload');
+        texture.userData = {
+          ...(texture.userData || {}),
+          source: 'upload',
+          objectUrl,
+          label: upload.name,
+        };
+        uploadedVideoPool.push(texture);
+        allVideoPool.push(texture);
+        upload.objectUrl = objectUrl;
+        upload.texture = texture;
+        return texture;
+      });
+
+      revealUploadedTextures(textures, getMaterials(), slabAspect);
+      isProcessingUploads = false;
+      updateUploadUI('processed');
+    }, CONFIG.upload.processingDelayMs);
+  }
+
+  addAssetsButton.addEventListener('click', toggleAssetModal);
+  assetModalClose?.addEventListener('click', closeAssetModal);
+  assetSelectButton.addEventListener('click', () => assetFileInput.click());
+  assetShowButton.addEventListener('click', showUploadsOnTower);
+  assetFileInput.addEventListener('change', () => {
+    handleAssetFiles(assetFileInput.files);
+    assetFileInput.value = '';
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!assetModalEl.classList.contains('open')) return;
+    if (assetDialogEl.contains(e.target) || addAssetsButton.contains(e.target)) return;
+    closeAssetModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && assetModalEl.classList.contains('open')) {
+      closeAssetModal();
+    }
+  });
+
+  updateUploadUI();
+}
+
+function isMP4Upload(file) {
+  return file?.type === 'video/mp4' || /\.mp4$/i.test(file?.name || '');
+}
+
+function revealUploadedTextures(textures, materials, slabAspect) {
+  if (!textures.length || !materials?.length) return;
+
+  const targets = materials.slice();
+  for (let i = targets.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [targets[i], targets[j]] = [targets[j], targets[i]];
+  }
+
+  textures.forEach((texture, idx) => {
+    const mat = targets[idx % targets.length];
+    cropTextureToAspect(texture, slabAspect);
+    setPanelTexture(mat, texture);
+    texture.image?.play?.().catch(() => {});
+  });
+}
 
 function showPatternLabel() {
   patternLabelEl.textContent = 'open hand';
@@ -252,7 +467,6 @@ let started = false;
 startBtn.addEventListener('click', () => {
   if (started) return;
   started = true;
-  document.body.classList.add('experience-live');
   overlay.classList.add('hidden');
   run().catch((e) => {
     console.error(e);
@@ -305,7 +519,6 @@ async function run() {
   webcamTex.magFilter  = THREE.LinearFilter;
 
   // ---------- load NASA images ----------
-  status.source = 'local';
   status.render();
   loaderShow();
   loaderLine('fetching NASA images (fast) + videos (background)...');
@@ -330,6 +543,7 @@ async function run() {
   // Videos load in background
   const videoPool = [];
   const localVideoPool = [];
+  const uploadedVideoPool = [];
   loadLocalVideos().then((videos) => {
     videos.forEach((v) => {
       localVideoPool.push(v);
@@ -350,6 +564,9 @@ async function run() {
   const tower = new THREE.Group();
   scene.add(tower);
 
+  const sphereOrbitGroup = new THREE.Group();
+  scene.add(sphereOrbitGroup);
+
   // These are mutable — they get replaced each time the pattern changes.
   let slabs = [];
   let allMaterials = [];
@@ -358,6 +575,13 @@ async function run() {
 
   // Mirror room shader materials — updated each frame with elapsed time
   let mirrorMaterials = [];
+
+  setupAssetUploads({
+    allVideoPool: videoPool,
+    uploadedVideoPool,
+    getMaterials: () => allMaterials,
+    getSlabAspect: () => SLAB.width / SLAB.height,
+  });
 
   // ---------- build / rebuild the tower from a pattern ----------
   function buildFromPattern(patternName) {
@@ -415,7 +639,17 @@ async function run() {
     status.render();
 
     // Start the swap loop for this generation of materials
-    startSwapping(allMaterials, images, { all: videoPool, local: localVideoPool }, slabAspect);
+    startSwapping(
+      allMaterials,
+      images,
+      { all: videoPool, local: localVideoPool, uploaded: uploadedVideoPool },
+      slabAspect
+    );
+    revealUploadedTextures(
+      uploadedVideoPool.slice(0, CONFIG.upload.maxVideos),
+      allMaterials,
+      slabAspect
+    );
 
     // Set camera distance and scale tower to fit viewport
     camera.position.set(0, 0, pat.cameraDistance);
@@ -438,6 +672,7 @@ async function run() {
     const fitDistance = (maxExtent / 2) / Math.tan(hFov / 2) * 1.15;
     const scale = Math.min(1, activePattern.cameraDistance / fitDistance);
     tower.scale.setScalar(scale);
+    sphereOrbitGroup.scale.setScalar(scale);
   }
 
   window.addEventListener('resize', () => {
@@ -462,6 +697,7 @@ async function run() {
 
   // ---------- build initial pattern ----------
   buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
+  document.body.classList.add('experience-live');
 
   // ---------- orbiting reflective sphere ----------
   // Keep the mirror sphere on a true outer orbit so it circles the
@@ -472,7 +708,7 @@ async function run() {
   });
   const cubeCamera = new THREE.CubeCamera(0.05, 30, cubeTarget);
   cubeCamera.position.set(0, 0, 0);
-  tower.add(cubeCamera);
+  sphereOrbitGroup.add(cubeCamera);
 
   const sphere = new THREE.Mesh(
     new THREE.SphereGeometry(CONFIG.sphereOrbit.size, 128, 128),
@@ -488,7 +724,7 @@ async function run() {
   );
   sphere.position.set(0, 0, 0);
   sphere.scale.set(1, 1, 1);
-  tower.add(sphere);
+  sphereOrbitGroup.add(sphere);
 
   const sphereHalo = new THREE.Mesh(
     new THREE.SphereGeometry(
@@ -822,6 +1058,33 @@ function pickPreferredManifestVideo(files) {
   return candidates[0] || null;
 }
 
+function normalizeVideoKey(url = '', title = '') {
+  const titleKey = title
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+  if (titleKey) return titleKey;
+
+  return String(url)
+    .toLowerCase()
+    .replace(/[?#].*$/, '')
+    .replace(/\/(?:orig|original|large|medium|small|preview|mobile|720p|1080p|2160p)[^/]*$/i, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isCleanNASAVideoCandidate({ title = '', url = '' } = {}) {
+  const text = `${title} ${url}`.toLowerCase();
+  const visualTerms =
+    /\b(nebula|galaxy|galaxies|deep field|star|stellar|cluster|supernova|cosmic|universe|infrared|ultraviolet|visualization|visualisation|flyby|fly-by|flythrough|fly-through|animation|simulation|webb|jwst|hubble)\b/;
+  const blockedTerms =
+    /\b(people|person|human|face|portrait|headshot|astronaut|crew|team|host|presenter|interview|talk|lecture|briefing|conference|webcast|broadcast|livestream|live stream|episode|hubblecast|podcast|news|media|promo|trailer|intro|outro|credits|slate|logo|caption|subtitle|transcript|administrator|scientist|engineer|ceremony|anniversary|rollout|launch|rocket|mission control|bars)\b|title[\s_-]*card|nasa[\s_-]*logo|lower[\s_-]*third|text[\s_-]*overlay|behind[\s_-]*the[\s_-]*scenes|b[\s_-]*roll|test[\s_-]*pattern|color[\s_-]*bars/;
+
+  return visualTerms.test(text) && !blockedTerms.test(text);
+}
+
 function normalizeLocalVideoEntries(manifest) {
   const items = Array.isArray(manifest) ? manifest : manifest?.videos || [];
   return items.map((item) => {
@@ -928,7 +1191,7 @@ async function probeNumberedLocalVideoEntries(manifestUrl) {
   return results.filter(Boolean);
 }
 
-function createVideoTexture(url, slabAspect, label = 'video') {
+function createVideoTexture(url, slabAspect, label = 'video', source = 'video') {
   const video = document.createElement('video');
   video.crossOrigin = 'anonymous';
   video.loop = true;
@@ -939,6 +1202,13 @@ function createVideoTexture(url, slabAspect, label = 'video') {
   video.src = url;
 
   const texture = new THREE.VideoTexture(video);
+  texture.userData = {
+    ...(texture.userData || {}),
+    isVideo: true,
+    source,
+    label,
+    contentKey: normalizeVideoKey(url, label),
+  };
   applyTextureQuality(texture, { isVideo: true });
 
   video.addEventListener('loadedmetadata', () => {
@@ -1068,64 +1338,30 @@ async function loadLocalVideos() {
 
   return entries.map(({ file, label }) => {
     const url = new URL(file, manifestBase).toString();
-    return createVideoTexture(url, slabAspect, label);
+    return createVideoTexture(url, slabAspect, label, 'local');
   });
 }
 
 async function loadNASAVideos() {
-  const videoTextures = [];
-  const slabAspect = SLAB.width / SLAB.height;
-
-  // --- HubbleSite video list + per-video detail ---
-  try {
-    console.log('[HST] fetching Hubble video list...');
-    const listRes = await fetch('https://hubblesite.org/api/v3/videos?page=1&per_page=30');
-    if (!listRes.ok) throw new Error(`list ${listRes.status}`);
-    const list = await listRes.json();
-
-    // Fetch file details for each video in parallel
-    const details = await Promise.allSettled(
-      list.slice(0, 20).map((item) =>
-        fetch(`https://hubblesite.org/api/v3/video/${item.id}`)
-          .then((r) => r.ok ? r.json() : null)
-          .catch(() => null)
-      )
-    );
-
-    for (let i = 0; i < details.length; i++) {
-      const d = details[i];
-      if (d.status !== 'fulfilled' || !d.value) continue;
-      const file = pickPreferredVideoFile(d.value.video_files || []);
-      if (!file?.url) continue;
-
-      videoTextures.push(
-        createVideoTexture(file.url, slabAspect, list[i]?.name || file.url)
-      );
-    }
-
-    console.log(`[HST] ${videoTextures.length} Hubble videos loaded`);
-  } catch (e) {
-    console.warn('[HST] Hubble video API failed, trying NASA fallback:', e.message);
-  }
-
-  // If HubbleSite gave us nothing, fall back to NASA Images API videos
-  if (videoTextures.length === 0) {
-    const fallback = await loadNASAVideosFallback();
-    fallback.forEach((t) => videoTextures.push(t));
-  }
-
-  return videoTextures;
+  return loadNASAVideosFallback();
 }
 
-// NASA Images API video fallback (used only when HubbleSite is unreachable)
+// NASA Images API videos, filtered to astronomy visuals rather than people/text.
 async function loadNASAVideosFallback() {
-  const queries = ['hubble nebula', 'hubble space telescope', 'james webb space telescope'];
-  const parts   = await Promise.all(queries.map((q) => resolveVideoUrls(q, 3)));
+  const queries = CONFIG.nasa.videoQueries;
+  const parts = await Promise.all(
+    queries.map((q) => resolveVideoUrls(q, CONFIG.nasa.videoItemsPerQuery))
+  );
   const seen    = new Set();
-  const unique  = parts.flat().filter(({ url }) => { if (seen.has(url)) return false; seen.add(url); return true; });
+  const unique  = parts.flat().filter(({ url, title }) => {
+    const key = normalizeVideoKey(url, title);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   const slabAspect = SLAB.width / SLAB.height;
 
-  return unique.map(({ url, title }) => createVideoTexture(url, slabAspect, title || url));
+  return unique.map(({ url, title }) => createVideoTexture(url, slabAspect, title || url, 'nasa'));
 }
 
 async function resolveVideoUrls(query, count) {
@@ -1140,18 +1376,19 @@ async function resolveVideoUrls(query, count) {
     if (items.length === 0) return [];
 
     const results = [];
-    for (let i = 0; i < Math.min(items.length, count * 2); i++) {
+    for (let i = 0; i < Math.min(items.length, count * 8); i++) {
       if (results.length >= count) break;
       const item  = items[i];
       const title = item?.data?.[0]?.title || query;
       const manifestUrl = (item.href || '').replace(/^http:\/\//, 'https://');
+      if (!isCleanNASAVideoCandidate({ title, url: manifestUrl })) continue;
       if (!manifestUrl) continue;
       try {
         const manifestRes = await fetch(manifestUrl);
         if (!manifestRes.ok) continue;
         const files = await manifestRes.json();
         const mp4 = pickPreferredManifestVideo(files);
-        if (mp4?.url) {
+        if (mp4?.url && isCleanNASAVideoCandidate({ title, url: mp4.url })) {
           results.push({ url: mp4.url, title });
         }
       } catch { continue; }
@@ -1217,41 +1454,112 @@ async function searchImages(query, count) {
 // from writing to materials that no longer exist.
 
 let swapGeneration = 0;
+let activeVideoTextureCounts = new Map();
+
+function getVideoTextureKey(texture) {
+  return texture?.userData?.contentKey || texture?.uuid || '';
+}
+
+function isVideoTexture(texture) {
+  return Boolean(texture?.userData?.isVideo);
+}
+
+function resetActiveVideoTextureCounts() {
+  activeVideoTextureCounts = new Map();
+}
+
+function countVideoTexture(texture, delta) {
+  if (!isVideoTexture(texture)) return;
+  const key = getVideoTextureKey(texture);
+  if (!key) return;
+
+  const nextCount = (activeVideoTextureCounts.get(key) || 0) + delta;
+  if (nextCount <= 0) {
+    activeVideoTextureCounts.delete(key);
+    return;
+  }
+  activeVideoTextureCounts.set(key, nextCount);
+}
+
+function setPanelTexture(material, texture) {
+  countVideoTexture(material.map, -1);
+  material.map = texture;
+  material.needsUpdate = true;
+  countVideoTexture(texture, 1);
+}
 
 function startSwapping(materials, images, videoPools, slabAspect) {
   const gen = ++swapGeneration;
-  const { minDelayMs, maxDelayMs, videoWeight, localVideoBias } = CONFIG.swap;
+  const { minDelayMs, maxDelayMs, videoWeight, localVideoBias, uploadedVideoBias } = CONFIG.swap;
   const allVideoPool = Array.isArray(videoPools) ? videoPools : videoPools?.all || [];
   const localVideoPool = Array.isArray(videoPools) ? [] : videoPools?.local || [];
+  const uploadedVideoPool = Array.isArray(videoPools) ? [] : videoPools?.uploaded || [];
+  resetActiveVideoTextureCounts();
+
+  function availableVideos(pool) {
+    return pool.filter((tex) => {
+      const key = getVideoTextureKey(tex);
+      return key && (activeVideoTextureCounts.get(key) || 0) === 0;
+    });
+  }
+
+  function pickAvailableVideo(pool) {
+    const available = availableVideos(pool);
+    if (available.length === 0) return null;
+    return available[Math.floor(Math.random() * available.length)];
+  }
 
   function pickTexture() {
     if (allVideoPool.length > 0 && Math.random() < videoWeight) {
+      if (uploadedVideoPool.length > 0 && Math.random() < uploadedVideoBias) {
+        const tex = pickAvailableVideo(uploadedVideoPool);
+        if (!tex) return images[Math.floor(Math.random() * images.length)];
+        cropTextureToAspect(tex, slabAspect);
+        return tex;
+      }
+
       const preferredPool =
         localVideoPool.length > 0 && Math.random() < localVideoBias
           ? localVideoPool
           : allVideoPool;
-      const tex = preferredPool[Math.floor(Math.random() * preferredPool.length)];
+      const tex = pickAvailableVideo(preferredPool) || pickAvailableVideo(allVideoPool);
+      if (!tex) return images[Math.floor(Math.random() * images.length)];
       cropTextureToAspect(tex, slabAspect);
       return tex;
     }
     return images[Math.floor(Math.random() * images.length)];
   }
 
-  function scheduleSwap(mat) {
+  function showVideoAcrossPanelRun(startIdx, texture, count = 3) {
+    for (let offset = 0; offset < count; offset++) {
+      const mat = materials[(startIdx + offset) % materials.length];
+      setPanelTexture(mat, texture);
+    }
+  }
+
+  function scheduleSwap(mat, idx) {
     const delay = minDelayMs + Math.random() * (maxDelayMs - minDelayMs);
     setTimeout(() => {
       // If the pattern changed since this timer was set, stop
       if (gen !== swapGeneration) return;
-      mat.map = pickTexture();
-      mat.needsUpdate = true;
-      scheduleSwap(mat);
+      const texture = pickTexture();
+      if (
+        isVideoTexture(texture) &&
+        Math.random() < CONFIG.swap.videoPanelSpanChance &&
+        (activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) === 0
+      ) {
+        showVideoAcrossPanelRun(idx, texture, 3);
+      } else {
+        setPanelTexture(mat, texture);
+      }
+      scheduleSwap(mat, idx);
     }, delay);
   }
 
-  materials.forEach((mat) => {
+  materials.forEach((mat, idx) => {
     setTimeout(() => {
       if (gen !== swapGeneration) return;
-      scheduleSwap(mat);
+      scheduleSwap(mat, idx);
     }, Math.random() * maxDelayMs);
   });
 }

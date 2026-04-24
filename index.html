@@ -16,11 +16,23 @@
   </div>
 
   <div id="bottom-right-hud">
-    <div id="source-status" class="hud-chip"></div>
+    <button id="add-assets-button" class="hud-chip" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="asset-modal" disabled>add assets</button>
     <div id="assets-status" class="hud-chip"></div>
   </div>
 
   <a id="about-link" class="hud-chip" href="about.html">about</a>
+
+  <div id="asset-modal" aria-hidden="true">
+    <div id="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title">
+      <button id="asset-modal-close" type="button" aria-label="close">x</button>
+      <div id="asset-dialog-title">add assets</div>
+      <input id="asset-file-input" type="file" accept="video/mp4,.mp4" multiple />
+      <button id="asset-select-button" type="button">select mp4</button>
+      <div id="asset-upload-status"></div>
+      <div id="asset-file-list" aria-live="polite"></div>
+      <button id="asset-show-button" type="button" disabled>show on tower</button>
+    </div>
+  </div>
 
   <div id="bottom-hud">
     <div id="hint" class="hud-chip">move your head</div>
@@ -32,7 +44,7 @@
   </div>
 
   <div id="loader">
-    <div id="loader-title">Video Archive</div>
+    <div id="loader-title">Video Tower</div>
     <div id="loader-log"></div>
   </div>
 
