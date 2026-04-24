@@ -236,30 +236,32 @@ body.about-page {
 }
 
 #about-page-content {
+  --about-copy-size: 11px;
+  --about-copy-leading: 1.75;
   max-width: 560px;
   margin: 0 auto;
-  padding: 120px 40px 80px;
+  padding: 136px 40px 80px;
   color: rgba(255, 255, 255, 0.85);
 }
 
 #about-page-content h1 {
   font-family: 'SF Mono', Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--about-copy-size);
   letter-spacing: 0.15em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.5);
   font-weight: normal;
-  margin: 0 0 40px 0;
+  margin: 0 0 52px 0;
 }
 
 #about-page-content p {
   font-family: 'SF Mono', Menlo, monospace;
-  font-size: 11px;
-  letter-spacing: 0.3em;
+  font-size: var(--about-copy-size);
+  letter-spacing: 0.18em;
   word-spacing: 0.15em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.55);
-  line-height: 2.2;
+  line-height: var(--about-copy-leading);
   margin: 0 0 32px 0;
 }
 
@@ -268,7 +270,7 @@ body.about-page {
   padding-top: 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
   font-family: 'SF Mono', Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--about-copy-size);
   letter-spacing: 0.15em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.5);
@@ -282,11 +284,8 @@ body.about-page {
 
 @media (max-width: 1024px) {
   #about-page-content {
-    padding: 100px 32px 60px;
-  }
-
-  #about-page-content p {
-    font-size: 15px;
+    --about-copy-size: 15px;
+    padding: 120px 32px 60px;
   }
 
   #start {
@@ -344,21 +343,21 @@ body.about-page {
   }
 
   #about-page-content {
-    padding: 80px 20px 60px;
+    --about-copy-size: 10px;
+    --about-copy-leading: 1.65;
+    padding: 96px 20px 60px;
     max-width: 100%;
   }
 
   #about-page-content h1 {
-    margin-bottom: 28px;
+    margin: 0 0 36px 0;
   }
 
   #about-page-content p {
     font-family: 'SF Mono', Menlo, monospace;
-    font-size: 10px;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.55);
-    line-height: 2;
     margin-bottom: 18px;
   }
 

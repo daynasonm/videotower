@@ -105,13 +105,24 @@ let currentPatternIndex = 0;
 const CONFIG = {
   camera: {
     fov: 45,
-    parallaxX: 0.6,
-    parallaxY: 0.8,
-    smoothing: 0.09,
+    parallaxX: 0.75,
+    parallaxY: 0.95,
+    headSmoothing: 8,
+    headSensitivity: 1.55,
+    zoomTargetSmoothing: 12,
+    zoomSmoothing: 8,
+    zoomDeadband: 0.015,
+    defaultZoom: 1,
     zoomTravel: 0.92,
+    zoomInTravel: 1.12,
+    desktopZoomOutTravel: 1.22,
+    desktopBreakpoint: 641,
     maxPixelRatio: 1.75,
   },
-  headRotation: { influence: 1.6 },
+  headRotation: {
+    horizontalInfluence: 3.8,
+    verticalInfluence: 0.75,
+  },
   requireNASA: true,
   video: {
     preferredWidth: 1920,
@@ -126,9 +137,10 @@ const CONFIG = {
   },
   localMedia: {
     manifestUrl: './local-media/videos/manifest.json',
+    numericProbeMax: 40,
   },
   sphereOrbit: {
-    speed: 0.24,
+    speed: 0.32,
     size: 0.48,
     clearance: 0.1,
     radialDrift: 0,
@@ -509,9 +521,25 @@ async function run() {
   );
 
   // ---------- input (head tracking + hand zoom) ----------
+  function getZoomTravel(zoomValue) {
+    if (
+      zoomValue > 0 &&
+      window.innerWidth >= CONFIG.camera.desktopBreakpoint
+    ) {
+      return CONFIG.camera.desktopZoomOutTravel;
+    }
+    if (zoomValue < 0) {
+      return CONFIG.camera.zoomInTravel;
+    }
+    return CONFIG.camera.zoomTravel;
+  }
+
   const input = { x: 0, y: 0, targetX: 0, targetY: 0,
-                  zoom: 1, targetZoom: 1 };   // zoom: -1=close, 0=neutral, 1=far
-  camera.position.z = activePattern.cameraDistance + CONFIG.camera.zoomTravel;
+                  zoom: CONFIG.camera.defaultZoom,
+                  targetZoom: CONFIG.camera.defaultZoom,
+                  rawTargetZoom: CONFIG.camera.defaultZoom };
+  // zoom: -1=close, 0=neutral, 1=far
+  camera.position.z = activePattern.cameraDistance + getZoomTravel(input.zoom);
   camera.lookAt(0, 0, 0);
   updateZoomInstruction(input.zoom);
   initHeadTracking(input).catch((e) => {
@@ -526,25 +554,49 @@ async function run() {
   let lastReflectionUpdateMs = -Infinity;
 
   function animate() {
-    const t   = clock.getElapsedTime();
+    const dt  = Math.min(clock.getDelta(), 0.05);
+    const t   = clock.elapsedTime;
     const pat = activePattern;
     const rot = pat.rotation;
 
     // Smooth head and zoom inputs
-    input.x    += (input.targetX    - input.x)    * CONFIG.camera.smoothing;
-    input.y    += (input.targetY    - input.y)    * CONFIG.camera.smoothing;
-    input.zoom += (input.targetZoom - input.zoom) * 0.06;
+    input.x = THREE.MathUtils.damp(
+      input.x,
+      input.targetX,
+      CONFIG.camera.headSmoothing,
+      dt
+    );
+    input.y = THREE.MathUtils.damp(
+      input.y,
+      input.targetY,
+      CONFIG.camera.headSmoothing,
+      dt
+    );
+    input.targetZoom = THREE.MathUtils.damp(
+      input.targetZoom,
+      input.rawTargetZoom,
+      CONFIG.camera.zoomTargetSmoothing,
+      dt
+    );
+    input.zoom = THREE.MathUtils.damp(
+      input.zoom,
+      input.targetZoom,
+      CONFIG.camera.zoomSmoothing,
+      dt
+    );
 
-    // Camera Z: neutral = pattern distance, zoom in/out ±1.8 units
+    // Camera Z: neutral = pattern distance, zoom in/out by zoomTravel.
     const baseZ   = pat.cameraDistance;
-    const zoomZ   = baseZ + input.zoom * CONFIG.camera.zoomTravel;
+    const zoomZ   = baseZ + input.zoom * getZoomTravel(input.zoom);
     updateZoomInstruction(input.zoom);
     camera.position.x = input.x * CONFIG.camera.parallaxX;
     camera.position.y = input.y * CONFIG.camera.parallaxY;
     camera.position.z = zoomZ;
     camera.lookAt(0, 0, 0);
 
-    const headDriven = input.x * CONFIG.headRotation.influence;
+    tower.rotation.x = input.y * CONFIG.headRotation.verticalInfluence;
+
+    const headDriven = input.x * CONFIG.headRotation.horizontalInfluence;
     const baseRot    = rot.baseSpeed * t + headDriven;
     const k = (Math.PI * 2) / rot.waveLength;
 
@@ -836,6 +888,46 @@ async function discoverLocalVideoEntries(manifestUrl) {
   }
 }
 
+async function localVideoExists(url) {
+  const cacheBustedUrl = `${url}?t=${Date.now()}`;
+
+  try {
+    const headRes = await fetch(cacheBustedUrl, {
+      method: 'HEAD',
+      cache: 'no-store',
+    });
+    if (headRes.ok) return true;
+    if (headRes.status !== 405) return false;
+  } catch {
+    // Some local servers do not support HEAD. Fall through to a tiny GET.
+  }
+
+  try {
+    const getRes = await fetch(cacheBustedUrl, {
+      cache: 'no-store',
+      headers: { Range: 'bytes=0-0' },
+    });
+    return getRes.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function probeNumberedLocalVideoEntries(manifestUrl) {
+  const directoryUrl = new URL('./', new URL(manifestUrl, window.location.href));
+  const candidates = Array.from(
+    { length: CONFIG.localMedia.numericProbeMax },
+    (_, idx) => `${idx + 1}.mp4`
+  );
+
+  const results = await Promise.all(candidates.map(async (file) => {
+    const url = new URL(file, directoryUrl).toString();
+    return await localVideoExists(url) ? { file, label: file } : null;
+  }));
+
+  return results.filter(Boolean);
+}
+
 function createVideoTexture(url, slabAspect, label = 'video') {
   const video = document.createElement('video');
   video.crossOrigin = 'anonymous';
@@ -961,8 +1053,12 @@ async function loadLocalVideos() {
     console.warn('[local] manifest load failed:', e.message);
   }
 
-  const discoveredEntries = await discoverLocalVideoEntries(manifestUrl);
+  const [discoveredEntries, probedEntries] = await Promise.all([
+    discoverLocalVideoEntries(manifestUrl),
+    probeNumberedLocalVideoEntries(manifestUrl),
+  ]);
   const entryMap = new Map();
+  probedEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
   discoveredEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
   manifestEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
   const entries = Array.from(entryMap.values());
@@ -1370,8 +1466,16 @@ async function initHeadTracking(input) {
       const fr = faceLandmarker.detectForVideo(webcamEl, now);
       if (fr.faceLandmarks && fr.faceLandmarks.length > 0) {
         const nose = fr.faceLandmarks[0][1];
-        input.targetX = (0.5 - nose.x) * 2;
-        input.targetY = (nose.y - 0.5) * 2;
+        input.targetX = THREE.MathUtils.clamp(
+          (0.5 - nose.x) * 2 * CONFIG.camera.headSensitivity,
+          -1.6,
+          1.6
+        );
+        input.targetY = THREE.MathUtils.clamp(
+          (nose.y - 0.5) * 2 * CONFIG.camera.headSensitivity,
+          -1.6,
+          1.6
+        );
       }
 
       // Hand tracking
@@ -1384,10 +1488,14 @@ async function initHeadTracking(input) {
           const openness = totalOpen / hr.landmarks.length;
           // open (1) = zoom in = negative zoom (camera closer)
           // closed (0) = zoom out = positive zoom (camera farther)
-          input.targetZoom = (0.5 - openness) * 2;  // −1 when open, +1 when closed
+          const rawZoom = (0.5 - openness) * 2;  // −1 when open, +1 when closed
+          if (Math.abs(rawZoom - input.rawTargetZoom) > CONFIG.camera.zoomDeadband) {
+            input.rawTargetZoom = rawZoom;
+          }
           status.hand = `hand: ${Math.max(0, Math.min(5, Math.round(openness * 5)))}/5`;
           status.tracking = 'on';
         } else {
+          input.rawTargetZoom = CONFIG.camera.defaultZoom;
           status.hand = 'hand: 0/5';
           status.tracking = 'off';
         }

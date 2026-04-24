@@ -1,7 +1,9 @@
 Drop your own video files into this folder.
 
 The app now tries to auto-discover supported video files in this folder
-when the page refreshes.
+when the page refreshes. If the local server does not expose a folder
+listing, the app still probes numbered MP4 files from 1.mp4 through
+40.mp4 automatically.
 
 You can still list files in manifest.json if you want explicit control
 or custom labels, like this:
@@ -22,4 +24,5 @@ Notes:
 - MP4 and WebM are the safest formats for browser playback.
 - After adding files or editing manifest.json, refresh the page.
 - manifest.json is optional for files in this folder, but useful for labels.
-- Auto-discovery depends on your local web server exposing the folder listing.
+- Non-numbered files depend on your local web server exposing the folder listing
+  or being listed in manifest.json.
