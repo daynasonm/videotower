@@ -191,10 +191,14 @@ const CONFIG = {
   swap: {
     minDelayMs: 1500,
     maxDelayMs: 5000,
-    videoWeight: 0.5,
-    localVideoBias: 0.72,
-    uploadedVideoBias: 0.3,
-    videoPanelSpanChance: 0.08,
+    videoWeight: 0.58,
+    localVideoBias: 0.45,
+    uploadedVideoBias: 0.78,
+    uploadedInitialRepeats: 8,
+    uploadedReuseLimit: 7,
+    uploadedPanelSpanChance: 0.62,
+    uploadedPanelSpanCount: 4,
+    videoPanelSpanChance: 0.14,
   },
 };
 
@@ -241,6 +245,99 @@ function fatal(title, details) {
 }
 
 // =============================================================
+// FAVICON
+// =============================================================
+let faviconFlashTimer = null;
+let faviconFlashOn = false;
+let cameraFaviconActive = false;
+
+function createDotFavicon(color, dotOpacity, glowOpacity) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <defs>
+        <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="7" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+      </defs>
+      <circle cx="32" cy="32" r="18" fill="${color}" opacity="${glowOpacity}" filter="url(#glow)"/>
+      <circle cx="32" cy="32" r="12" fill="${color}" opacity="${dotOpacity}"/>
+    </svg>
+  `;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+const FAVICON_OFF = createDotFavicon('#2b3038', 0.55, 0.08);
+const FAVICON_CAMERA_ON = createDotFavicon('#39ff14', 1, 0.78);
+const FAVICON_CAMERA_DIM = createDotFavicon('#39ff14', 0.14, 0.16);
+
+function getFaviconLink() {
+  let link = document.querySelector('link[rel~="icon"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.append(link);
+  }
+  link.type = 'image/svg+xml';
+  return link;
+}
+
+function setFavicon(href) {
+  getFaviconLink().href = href;
+}
+
+function clearFaviconFlashTimer() {
+  if (!faviconFlashTimer) return;
+  window.clearInterval(faviconFlashTimer);
+  faviconFlashTimer = null;
+}
+
+function isPresentOnSite() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
+function updateCameraFavicon() {
+  if (!cameraFaviconActive) {
+    clearFaviconFlashTimer();
+    setFavicon(FAVICON_OFF);
+    return;
+  }
+
+  if (!isPresentOnSite()) {
+    clearFaviconFlashTimer();
+    setFavicon(FAVICON_CAMERA_ON);
+    return;
+  }
+
+  if (faviconFlashTimer) return;
+  faviconFlashOn = true;
+  setFavicon(FAVICON_CAMERA_ON);
+  faviconFlashTimer = window.setInterval(() => {
+    faviconFlashOn = !faviconFlashOn;
+    setFavicon(faviconFlashOn ? FAVICON_CAMERA_ON : FAVICON_CAMERA_DIM);
+  }, 650);
+}
+
+function startCameraFaviconFlash() {
+  cameraFaviconActive = true;
+  updateCameraFavicon();
+}
+
+function stopCameraFaviconFlash() {
+  cameraFaviconActive = false;
+  updateCameraFavicon();
+}
+
+stopCameraFaviconFlash();
+window.addEventListener('visibilitychange', updateCameraFavicon);
+window.addEventListener('focus', updateCameraFavicon);
+window.addEventListener('blur', updateCameraFavicon);
+window.addEventListener('pagehide', stopCameraFaviconFlash);
+
+// =============================================================
 // STATUS HUD
 // =============================================================
 const addAssetsButton = document.getElementById('add-assets-button');
@@ -271,6 +368,265 @@ const status = {
 };
 status.render();
 
+// =============================================================
+// EXPERIENCE MANUAL
+// =============================================================
+const manualButton = document.getElementById('manual-link');
+const manualOverlayEl = document.getElementById('manual-overlay');
+const manualHighlightEl = document.getElementById('manual-highlight');
+const manualPanelEl = document.getElementById('manual-panel');
+const manualKickerEl = document.getElementById('manual-kicker');
+const manualTitleEl = document.getElementById('manual-title');
+const manualCopyEl = document.getElementById('manual-copy');
+const manualStepCountEl = document.getElementById('manual-step-count');
+const manualSkipButton = document.getElementById('manual-skip');
+const manualNextButton = document.getElementById('manual-next');
+
+const MANUAL_STEPS = [
+  {
+    target: '#add-assets-button',
+    kicker: 'add video',
+    title: 'Start with your videos',
+    copy: 'Click the highlighted add assets button. Your MP4 files become part of the tower instead of only watching the archive.',
+  },
+  {
+    target: '#asset-select-button',
+    highlightPadding: 0,
+    kicker: 'choose file',
+    title: 'Select an MP4',
+    copy: 'Click the highlighted select MP4 button and choose one or more short videos from your computer.',
+    keepAssetModalOpen: true,
+  },
+  {
+    target: '#asset-show-button',
+    highlightPadding: 0,
+    kicker: 'reveal',
+    title: 'Show them on the tower',
+    copy: 'Click the highlighted show on tower button. The files process for a moment, then enter the moving slabs.',
+    keepAssetModalOpen: true,
+  },
+  {
+    target: '#bottom-hud',
+    kicker: 'movement',
+    title: 'Move the tower',
+    copy: 'Move your head for parallax. Open or pinch your hand to change how close the tower feels.',
+  },
+  {
+    target: '#top-hud',
+    kicker: 'sensing',
+    panelPlacement: 'below',
+    panelClearance: 80,
+    title: 'Watch the tracking',
+    copy: 'These indicators show whether the camera and hand tracking are reading your body.',
+  },
+  {
+    target: '#about-link',
+    kicker: 'context',
+    title: 'Read the project text',
+    copy: 'About opens the concept statement. Coming back returns directly to the live tower.',
+  },
+];
+
+let manualActive = false;
+let manualStepIndex = 0;
+let manualAutoShown = false;
+
+function clampManualPosition(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function ensureAssetModalOpenForManual() {
+  if (!assetModalEl || assetModalEl.classList.contains('open')) return;
+  addAssetsButton?.click();
+}
+
+function closeAssetModalForManual() {
+  if (!assetModalEl?.classList.contains('open')) return;
+  assetModalClose?.click();
+}
+
+function updateManualLayout() {
+  if (!manualActive || !manualPanelEl || !manualHighlightEl) return;
+
+  const step = MANUAL_STEPS[manualStepIndex];
+  const target = document.querySelector(step.target);
+  const rect = target?.getBoundingClientRect();
+  const pad = step.highlightPadding ?? 8;
+  const fallback = {
+    left: window.innerWidth / 2 - 96,
+    top: window.innerHeight / 2 - 36,
+    width: 192,
+    height: 72,
+    right: window.innerWidth / 2 + 96,
+    bottom: window.innerHeight / 2 + 36,
+  };
+  const box = rect && rect.width > 0 && rect.height > 0 ? rect : fallback;
+
+  const highlightLeft = Math.max(8, box.left - pad);
+  const highlightTop = Math.max(8, box.top - pad);
+  const highlightWidth = Math.min(window.innerWidth - highlightLeft - 8, box.width + pad * 2);
+  const highlightHeight = Math.min(window.innerHeight - highlightTop - 8, box.height + pad * 2);
+
+  manualHighlightEl.style.left = `${Math.round(highlightLeft)}px`;
+  manualHighlightEl.style.top = `${Math.round(highlightTop)}px`;
+  manualHighlightEl.style.width = `${Math.round(highlightWidth)}px`;
+  manualHighlightEl.style.height = `${Math.round(highlightHeight)}px`;
+
+  const panelRect = manualPanelEl.getBoundingClientRect();
+  const margin = 16;
+  const clearance = step.panelClearance ?? (manualStepIndex < 3 ? 72 : margin);
+  const maxPanelLeft = Math.max(margin, window.innerWidth - panelRect.width - margin);
+  const maxPanelTop = Math.max(margin, window.innerHeight - panelRect.height - margin);
+  const candidatePositions = [
+    { left: box.left, top: box.top - panelRect.height - clearance },
+    { left: box.left, top: box.bottom + clearance },
+    { left: box.left - panelRect.width - clearance, top: box.top },
+    { left: box.right + clearance, top: box.top },
+    { left: margin, top: margin },
+  ].map((position) => ({
+    left: clampManualPosition(position.left, margin, maxPanelLeft),
+    top: clampManualPosition(position.top, margin, maxPanelTop),
+  }));
+
+  if (step.panelPlacement === 'below') {
+    const forcedPosition = {
+      left: clampManualPosition(box.left, margin, maxPanelLeft),
+      top: clampManualPosition(box.bottom + clearance, margin, maxPanelTop),
+    };
+    manualPanelEl.style.left = `${Math.round(forcedPosition.left)}px`;
+    manualPanelEl.style.top = `${Math.round(forcedPosition.top)}px`;
+    return;
+  }
+
+  const highlightBox = {
+    left: highlightLeft,
+    top: highlightTop,
+    right: highlightLeft + highlightWidth,
+    bottom: highlightTop + highlightHeight,
+  };
+  const intersectsHighlight = (position) => {
+    const panelBox = {
+      left: position.left,
+      top: position.top,
+      right: position.left + panelRect.width,
+      bottom: position.top + panelRect.height,
+    };
+    return !(
+      panelBox.right + clearance <= highlightBox.left ||
+      panelBox.left - clearance >= highlightBox.right ||
+      panelBox.bottom + clearance <= highlightBox.top ||
+      panelBox.top - clearance >= highlightBox.bottom
+    );
+  };
+  const panelPosition =
+    candidatePositions.find((position) => !intersectsHighlight(position)) ||
+    candidatePositions[0];
+
+  manualPanelEl.style.left = `${Math.round(panelPosition.left)}px`;
+  manualPanelEl.style.top = `${Math.round(panelPosition.top)}px`;
+}
+
+function scheduleManualLayoutUpdates() {
+  window.requestAnimationFrame(() => {
+    updateManualLayout();
+    window.requestAnimationFrame(updateManualLayout);
+  });
+  window.setTimeout(updateManualLayout, 240);
+}
+
+function renderManualStep() {
+  if (!manualActive) return;
+
+  const step = MANUAL_STEPS[manualStepIndex];
+  if (step.keepAssetModalOpen) {
+    ensureAssetModalOpenForManual();
+  } else if (manualStepIndex > 2) {
+    closeAssetModalForManual();
+  }
+
+  const isUploadStep = manualStepIndex < 3;
+
+  manualKickerEl.textContent = step.kicker;
+  manualTitleEl.textContent = step.title;
+  manualCopyEl.textContent = step.copy;
+  manualStepCountEl.textContent = `step ${manualStepIndex + 1} of ${MANUAL_STEPS.length}`;
+  manualSkipButton.hidden = isUploadStep;
+  manualSkipButton.textContent = 'back';
+  manualSkipButton.disabled = manualStepIndex === 0;
+  manualNextButton.hidden = isUploadStep;
+  manualNextButton.textContent = manualStepIndex === MANUAL_STEPS.length - 1 ? 'done' : 'next';
+
+  scheduleManualLayoutUpdates();
+}
+
+function setManualStep(index) {
+  manualStepIndex = clampManualPosition(index, 0, MANUAL_STEPS.length - 1);
+  renderManualStep();
+}
+
+function advanceManualStep() {
+  if (manualStepIndex === 0) {
+    ensureAssetModalOpenForManual();
+  }
+
+  if (manualStepIndex >= MANUAL_STEPS.length - 1) {
+    hideExperienceManual();
+    return;
+  }
+
+  setManualStep(manualStepIndex + 1);
+}
+
+function backManualStep() {
+  if (manualStepIndex <= 0) return;
+  setManualStep(manualStepIndex - 1);
+}
+
+function showExperienceManual({ force = false } = {}) {
+  if (!manualOverlayEl) return;
+  if (!force && manualAutoShown) return;
+
+  manualAutoShown = true;
+  manualActive = true;
+  manualStepIndex = 0;
+  manualOverlayEl.classList.add('open');
+  manualOverlayEl.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('manual-open');
+  renderManualStep();
+}
+
+function hideExperienceManual() {
+  if (!manualOverlayEl) return;
+  manualActive = false;
+  manualOverlayEl.classList.remove('open');
+  manualOverlayEl.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('manual-open');
+}
+
+function handleManualAssetFilesChanged(acceptedCount) {
+  if (!manualActive || acceptedCount <= 0) return;
+  if (manualStepIndex <= 1) {
+    setManualStep(2);
+    return;
+  }
+  renderManualStep();
+}
+
+function handleManualUploadsShown() {
+  if (!manualActive) return;
+  setManualStep(3);
+}
+
+manualButton?.addEventListener('click', () => showExperienceManual({ force: true }));
+manualSkipButton?.addEventListener('click', backManualStep);
+manualNextButton?.addEventListener('click', advanceManualStep);
+window.addEventListener('resize', updateManualLayout);
+window.addEventListener('keydown', (e) => {
+  if (!manualActive) return;
+  if (e.key === 'Escape') hideExperienceManual();
+  if (e.key === 'ArrowRight') advanceManualStep();
+});
+
 function setupAssetUploads({
   allVideoPool,
   uploadedVideoPool,
@@ -298,6 +654,7 @@ function setupAssetUploads({
     assetMessage = message;
     status.uploads = uploads.length;
     status.render();
+    document.body.classList.toggle('assets-prompt', uploads.length === 0);
 
     const remaining = Math.max(0, CONFIG.upload.maxVideos - uploads.length);
     const pendingCount = uploads.filter(({ texture }) => !texture).length;
@@ -348,7 +705,7 @@ function setupAssetUploads({
   }
 
   function handleAssetFiles(fileList) {
-    if (isProcessingUploads) return;
+    if (isProcessingUploads) return 0;
 
     const files = Array.from(fileList || []);
     const mp4Files = files.filter(isMP4Upload);
@@ -356,13 +713,13 @@ function setupAssetUploads({
 
     if (remaining <= 0) {
       updateUploadUI(`limit ${CONFIG.upload.maxVideos}`);
-      return;
+      return 0;
     }
 
     const accepted = mp4Files.slice(0, remaining);
     if (accepted.length === 0) {
       updateUploadUI(files.length > 0 ? 'mp4 only' : '');
-      return;
+      return 0;
     }
 
     accepted.forEach((file) => {
@@ -371,11 +728,12 @@ function setupAssetUploads({
 
     const skipped = files.length - accepted.length;
     updateUploadUI(skipped > 0 ? `${skipped} skipped` : '');
+    return accepted.length;
   }
 
   function showUploadsOnTower() {
     const pendingUploads = uploads.filter(({ texture }) => !texture);
-    if (pendingUploads.length === 0 || isProcessingUploads) return;
+    if (pendingUploads.length === 0 || isProcessingUploads) return false;
 
     isProcessingUploads = true;
     updateUploadUI('processing');
@@ -402,15 +760,25 @@ function setupAssetUploads({
       isProcessingUploads = false;
       updateUploadUI('processed');
     }, CONFIG.upload.processingDelayMs);
+    return true;
   }
 
-  addAssetsButton.addEventListener('click', toggleAssetModal);
+  addAssetsButton.addEventListener('click', () => {
+    const wasOpen = assetModalEl.classList.contains('open');
+    toggleAssetModal();
+    if (manualActive && manualStepIndex === 0 && !wasOpen) {
+      setManualStep(1);
+    }
+  });
   assetModalClose?.addEventListener('click', closeAssetModal);
   assetSelectButton.addEventListener('click', () => assetFileInput.click());
-  assetShowButton.addEventListener('click', showUploadsOnTower);
+  assetShowButton.addEventListener('click', () => {
+    if (showUploadsOnTower()) handleManualUploadsShown();
+  });
   assetFileInput.addEventListener('change', () => {
-    handleAssetFiles(assetFileInput.files);
+    const acceptedCount = handleAssetFiles(assetFileInput.files);
     assetFileInput.value = '';
+    handleManualAssetFilesChanged(acceptedCount);
   });
 
   document.addEventListener('pointerdown', (e) => {
@@ -441,10 +809,14 @@ function revealUploadedTextures(textures, materials, slabAspect) {
     [targets[i], targets[j]] = [targets[j], targets[i]];
   }
 
+  let targetIndex = 0;
+  const repeats = Math.max(1, CONFIG.swap.uploadedInitialRepeats || 1);
   textures.forEach((texture, idx) => {
-    const mat = targets[idx % targets.length];
     cropTextureToAspect(texture, slabAspect);
-    setPanelTexture(mat, texture);
+    for (let repeat = 0; repeat < repeats && targetIndex < targets.length; repeat++) {
+      setPanelTexture(targets[targetIndex], texture);
+      targetIndex++;
+    }
     texture.image?.play?.().catch(() => {});
   });
 }
@@ -462,9 +834,10 @@ function updateZoomInstruction(zoomValue) {
 // =============================================================
 const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('start');
+const aboutLink = document.getElementById('about-link');
 let started = false;
 
-startBtn.addEventListener('click', () => {
+function startExperience() {
   if (started) return;
   started = true;
   overlay.classList.add('hidden');
@@ -474,7 +847,22 @@ startBtn.addEventListener('click', () => {
     status.tracking = 'off';
     status.render();
   });
+}
+
+startBtn.addEventListener('click', startExperience);
+
+aboutLink?.addEventListener('click', () => {
+  if (!started || window.location.hash === '#tower') return;
+  window.history.replaceState(
+    null,
+    '',
+    `${window.location.pathname}${window.location.search}#tower`
+  );
 });
+
+if (window.location.hash === '#tower') {
+  startExperience();
+}
 
 // =============================================================
 // MAIN
@@ -698,6 +1086,7 @@ async function run() {
   // ---------- build initial pattern ----------
   buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
   document.body.classList.add('experience-live');
+  showExperienceManual();
 
   // ---------- orbiting reflective sphere ----------
   // Keep the mirror sphere on a true outer orbit so it circles the
@@ -780,6 +1169,7 @@ async function run() {
   updateZoomInstruction(input.zoom);
   initHeadTracking(input).catch((e) => {
     console.warn('Head tracking failed:', e);
+    stopCameraFaviconFlash();
     status.tracking = 'off';
     status.error = e.message || 'camera unavailable';
     status.render();
@@ -1464,6 +1854,10 @@ function isVideoTexture(texture) {
   return Boolean(texture?.userData?.isVideo);
 }
 
+function isUploadedVideoTexture(texture) {
+  return texture?.userData?.source === 'upload';
+}
+
 function resetActiveVideoTextureCounts() {
   activeVideoTextureCounts = new Map();
 }
@@ -1496,28 +1890,29 @@ function startSwapping(materials, images, videoPools, slabAspect) {
   const uploadedVideoPool = Array.isArray(videoPools) ? [] : videoPools?.uploaded || [];
   resetActiveVideoTextureCounts();
 
-  function availableVideos(pool) {
+  function availableVideos(pool, reuseLimit = 0) {
     return pool.filter((tex) => {
       const key = getVideoTextureKey(tex);
-      return key && (activeVideoTextureCounts.get(key) || 0) === 0;
+      return key && (activeVideoTextureCounts.get(key) || 0) <= reuseLimit;
     });
   }
 
-  function pickAvailableVideo(pool) {
-    const available = availableVideos(pool);
+  function pickAvailableVideo(pool, reuseLimit = 0) {
+    const available = availableVideos(pool, reuseLimit);
     if (available.length === 0) return null;
     return available[Math.floor(Math.random() * available.length)];
   }
 
   function pickTexture() {
-    if (allVideoPool.length > 0 && Math.random() < videoWeight) {
-      if (uploadedVideoPool.length > 0 && Math.random() < uploadedVideoBias) {
-        const tex = pickAvailableVideo(uploadedVideoPool);
-        if (!tex) return images[Math.floor(Math.random() * images.length)];
+    if (uploadedVideoPool.length > 0 && Math.random() < uploadedVideoBias) {
+      const tex = pickAvailableVideo(uploadedVideoPool, CONFIG.swap.uploadedReuseLimit);
+      if (tex) {
         cropTextureToAspect(tex, slabAspect);
         return tex;
       }
+    }
 
+    if (allVideoPool.length > 0 && Math.random() < videoWeight) {
       const preferredPool =
         localVideoPool.length > 0 && Math.random() < localVideoBias
           ? localVideoPool
@@ -1545,10 +1940,18 @@ function startSwapping(materials, images, videoPools, slabAspect) {
       const texture = pickTexture();
       if (
         isVideoTexture(texture) &&
-        Math.random() < CONFIG.swap.videoPanelSpanChance &&
-        (activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) === 0
+        (
+          isUploadedVideoTexture(texture)
+            ? Math.random() < CONFIG.swap.uploadedPanelSpanChance
+            : Math.random() < CONFIG.swap.videoPanelSpanChance &&
+              (activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) === 0
+        )
       ) {
-        showVideoAcrossPanelRun(idx, texture, 3);
+        showVideoAcrossPanelRun(
+          idx,
+          texture,
+          isUploadedVideoTexture(texture) ? CONFIG.swap.uploadedPanelSpanCount : 3
+        );
       } else {
         setPanelTexture(mat, texture);
       }
@@ -1682,6 +2085,10 @@ async function initHeadTracking(input) {
   await new Promise((r) =>
     webcamEl.addEventListener('loadeddata', r, { once: true })
   );
+  startCameraFaviconFlash();
+  stream.getVideoTracks().forEach((track) => {
+    track.addEventListener('ended', stopCameraFaviconFlash);
+  });
 
   const MP = '0.10.32';
   const { FaceLandmarker, HandLandmarker, FilesetResolver } = await import(
