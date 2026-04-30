@@ -119,6 +119,16 @@ const CONFIG = {
     desktopBreakpoint: 641,
     maxPixelRatio: 1.75,
   },
+  tracking: {
+    cameraWidth: 424,
+    cameraHeight: 318,
+    cameraFrameRate: 24,
+    faceFps: 12,
+    handFps: 5,
+    statusFps: 8,
+    presenceGraceMs: 650,
+    handNumHands: 1,
+  },
   headRotation: {
     horizontalInfluence: 3.8,
     verticalInfluence: 0.75,
@@ -135,7 +145,7 @@ const CONFIG = {
   },
   localMedia: {
     manifestUrl: './local-media/videos/manifest.json',
-    numericProbeMax: 40,
+    numericProbeMax: 80,
   },
   upload: {
     maxVideos: 15,
@@ -183,7 +193,9 @@ const CONFIG = {
     uploadedInitialRepeats: 8,
     uploadedReuseLimit: 7,
     localInitialRepeats: 4,
-    localReuseLimit: 9,
+    localInitialMaxVideos: 32,
+    localActiveVideoLimit: 32,
+    localReuseLimit: 3,
     localPanelSpanChance: 0.72,
     localPanelSpanCount: 4,
     uploadedPanelSpanChance: 0.62,
@@ -385,7 +397,7 @@ const MANUAL_STEPS = [
     uploadSkippable: true,
     kicker: 'add video',
     title: 'Start with your videos',
-    copy: 'Click add assets to add your MP4 files, or skip to continue with the archive.',
+    copy: 'Click add assets if you want to upload MP4 files. Next continues the manual. Skip closes it.',
   },
   {
     target: '#asset-select-button',
@@ -751,6 +763,11 @@ function skipManualUploads() {
 }
 
 function skipManualStep() {
+  if (manualStepIndex === 0) {
+    hideExperienceManual();
+    return;
+  }
+
   const step = MANUAL_STEPS[manualStepIndex];
   if (manualStepIndex < FIRST_NON_UPLOAD_MANUAL_STEP && step.uploadSkippable) {
     skipManualUploads();
@@ -979,25 +996,45 @@ function isMP4Upload(file) {
   return file?.type === 'video/mp4' || /\.mp4$/i.test(file?.name || '');
 }
 
+function shuffleArray(items) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function getPanelSide(material, fallbackIndex = 0) {
+  return material?.userData?.panelSide ?? (fallbackIndex % 4);
+}
+
 function revealVideoTextures(textures, materials, slabAspect, repeats) {
   if (!textures.length || !materials?.length) return;
 
-  const targets = materials.slice();
-  for (let i = targets.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [targets[i], targets[j]] = [targets[j], targets[i]];
-  }
+  const sideQueues = [[], [], [], []];
+  materials.forEach((material, index) => {
+    sideQueues[getPanelSide(material, index)].push(material);
+  });
+  sideQueues.forEach((queue) => shuffleArray(queue));
 
-  let targetIndex = 0;
-  const repeatCount = Math.max(1, repeats || 1);
+  const repeatCount = Math.min(4, Math.max(1, repeats || 1));
   textures.forEach((texture, idx) => {
     cropTextureToAspect(texture, slabAspect);
-    for (let repeat = 0; repeat < repeatCount && targetIndex < targets.length; repeat++) {
-      setPanelTexture(targets[targetIndex], texture);
-      targetIndex++;
+    const sideOrder = shuffleArray([0, 1, 2, 3]);
+    for (let repeat = 0; repeat < repeatCount; repeat++) {
+      const side = sideOrder[repeat % sideOrder.length];
+      const target = sideQueues[side].pop();
+      if (!target) continue;
+      setPanelTexture(target, texture);
     }
-    texture.image?.play?.().catch(() => {});
   });
+}
+
+function sampleVideoTextures(textures, maxCount = textures.length) {
+  if (!textures.length || textures.length <= maxCount) return textures;
+
+  const sample = shuffleArray(textures.slice());
+  return sample.slice(0, maxCount);
 }
 
 function showPatternLabel() {
@@ -1040,8 +1077,9 @@ function clearReturnToTowerFlag() {
   }
 }
 
-const shouldReturnToTower = window.location.hash === '#tower' || readReturnToTowerFlag();
-if (shouldReturnToTower) clearReturnToTowerFlag();
+const isReturningFromAbout = readReturnToTowerFlag();
+const shouldAutoStartTower = window.location.hash === '#tower' || isReturningFromAbout;
+if (isReturningFromAbout) clearReturnToTowerFlag();
 let started = false;
 
 function startExperience() {
@@ -1068,7 +1106,7 @@ aboutLink?.addEventListener('click', () => {
   );
 });
 
-if (shouldReturnToTower) {
+if (shouldAutoStartTower) {
   startExperience();
 }
 
@@ -1139,7 +1177,7 @@ async function run() {
     });
     console.log(`[local] ${videos.length} local videos now in rotation`);
     revealVideoTextures(
-      videos,
+      sampleVideoTextures(videos, CONFIG.swap.localInitialMaxVideos),
       allMaterials,
       SLAB.width / SLAB.height,
       CONFIG.swap.localInitialRepeats
@@ -1209,6 +1247,7 @@ async function run() {
       faceDefs.forEach((f, fIdx) => {
         const poolIdx = (i * 3 + fIdx * 5) % images.length;
         const mat = new THREE.MeshBasicMaterial({ map: images[poolIdx], side: THREE.DoubleSide });
+        mat.userData.panelSide = fIdx;
         const mesh = new THREE.Mesh(faceGeom, mat);
         mesh.scale.set(f.w, SLAB.height, 1);
         mesh.position.set(Math.sin(f.rotY) * f.d, 0, Math.cos(f.rotY) * f.d);
@@ -1233,7 +1272,7 @@ async function run() {
       slabAspect
     );
     revealVideoTextures(
-      localVideoPool,
+      sampleVideoTextures(localVideoPool, CONFIG.swap.localInitialMaxVideos),
       allMaterials,
       slabAspect,
       CONFIG.swap.localInitialRepeats
@@ -1291,7 +1330,7 @@ async function run() {
   // ---------- build initial pattern ----------
   buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
   document.body.classList.add('experience-live');
-  if (!shouldReturnToTower) showExperienceManual();
+  if (!isReturningFromAbout) showExperienceManual({ force: true });
 
   // ---------- input (head tracking + hand zoom) ----------
   function getZoomTravel(zoomValue) {
@@ -1714,7 +1753,9 @@ function createVideoTexture(url, slabAspect, label = 'video', source = 'video') 
   }, { once: true });
 
   video.addEventListener('canplay', () => {
-    video.play().catch(() => {});
+    if ((activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) > 0) {
+      video.play().catch(() => {});
+    }
   }, { once: true });
 
   video.addEventListener('loadeddata', () => {
@@ -1950,6 +1991,7 @@ async function searchImages(query, count) {
 
 let swapGeneration = 0;
 let activeVideoTextureCounts = new Map();
+let activeVideoTextureSideCounts = new Map();
 
 function getVideoTextureKey(texture) {
   return texture?.userData?.contentKey || texture?.uuid || '';
@@ -1969,26 +2011,54 @@ function isLocalVideoTexture(texture) {
 
 function resetActiveVideoTextureCounts() {
   activeVideoTextureCounts = new Map();
+  activeVideoTextureSideCounts = new Map();
 }
 
-function countVideoTexture(texture, delta) {
+function getVideoTextureSideCount(texture, side) {
+  const key = getVideoTextureKey(texture);
+  if (!key) return 0;
+  return activeVideoTextureSideCounts.get(key)?.get(side) || 0;
+}
+
+function countVideoTexture(texture, delta, side = null) {
   if (!isVideoTexture(texture)) return;
   const key = getVideoTextureKey(texture);
   if (!key) return;
 
-  const nextCount = (activeVideoTextureCounts.get(key) || 0) + delta;
+  const previousCount = activeVideoTextureCounts.get(key) || 0;
+  const nextCount = previousCount + delta;
+  if (side !== null) {
+    const sideCounts = activeVideoTextureSideCounts.get(key) || new Map();
+    const nextSideCount = (sideCounts.get(side) || 0) + delta;
+    if (nextSideCount <= 0) {
+      sideCounts.delete(side);
+    } else {
+      sideCounts.set(side, nextSideCount);
+    }
+    if (sideCounts.size === 0 || nextCount <= 0) {
+      activeVideoTextureSideCounts.delete(key);
+    } else {
+      activeVideoTextureSideCounts.set(key, sideCounts);
+    }
+  }
+
   if (nextCount <= 0) {
     activeVideoTextureCounts.delete(key);
+    texture.image?.pause?.();
     return;
   }
   activeVideoTextureCounts.set(key, nextCount);
+  if (previousCount <= 0) {
+    texture.image?.play?.().catch(() => {});
+  }
 }
 
 function setPanelTexture(material, texture) {
-  countVideoTexture(material.map, -1);
+  const side = getPanelSide(material);
+  countVideoTexture(material.map, -1, side);
   material.map = texture;
   material.needsUpdate = true;
-  countVideoTexture(texture, 1);
+  countVideoTexture(texture, 1, side);
 }
 
 function startSwapping(materials, images, videoPools, slabAspect) {
@@ -1999,22 +2069,45 @@ function startSwapping(materials, images, videoPools, slabAspect) {
   const uploadedVideoPool = Array.isArray(videoPools) ? [] : videoPools?.uploaded || [];
   resetActiveVideoTextureCounts();
 
-  function availableVideos(pool, reuseLimit = 0) {
+  function availableVideos(pool, reuseLimit = 0, side = null) {
     return pool.filter((tex) => {
       const key = getVideoTextureKey(tex);
-      return key && (activeVideoTextureCounts.get(key) || 0) <= reuseLimit;
+      if (!key) return false;
+      if ((activeVideoTextureCounts.get(key) || 0) > reuseLimit) return false;
+      return side === null || getVideoTextureSideCount(tex, side) === 0;
     });
   }
 
-  function pickAvailableVideo(pool, reuseLimit = 0) {
-    const available = availableVideos(pool, reuseLimit);
+  function pickAvailableVideo(pool, reuseLimit = 0, side = null) {
+    const available = availableVideos(pool, reuseLimit, side);
     if (available.length === 0) return null;
     return available[Math.floor(Math.random() * available.length)];
   }
 
-  function pickTexture() {
+  function pickLocalVideo(side) {
+    const activeLocal = localVideoPool.filter((tex) => {
+      const count = activeVideoTextureCounts.get(getVideoTextureKey(tex)) || 0;
+      return count > 0;
+    });
+    const activeLocalForSide = activeLocal.filter((tex) => getVideoTextureSideCount(tex, side) === 0);
+    if (
+      activeLocal.length >= CONFIG.swap.localActiveVideoLimit &&
+      activeLocalForSide.length > 0
+    ) {
+      return activeLocalForSide[Math.floor(Math.random() * activeLocalForSide.length)];
+    }
+    return (
+      pickAvailableVideo(localVideoPool, CONFIG.swap.localReuseLimit, side) ||
+      pickAvailableVideo(localVideoPool, CONFIG.swap.localReuseLimit)
+    );
+  }
+
+  function pickTexture(idx) {
+    const side = idx % 4;
     if (uploadedVideoPool.length > 0 && Math.random() < uploadedVideoBias) {
-      const tex = pickAvailableVideo(uploadedVideoPool, CONFIG.swap.uploadedReuseLimit);
+      const tex =
+        pickAvailableVideo(uploadedVideoPool, CONFIG.swap.uploadedReuseLimit, side) ||
+        pickAvailableVideo(uploadedVideoPool, CONFIG.swap.uploadedReuseLimit);
       if (tex) {
         cropTextureToAspect(tex, slabAspect);
         return tex;
@@ -2025,10 +2118,13 @@ function startSwapping(materials, images, videoPools, slabAspect) {
       const tex =
         localVideoPool.length > 0 && Math.random() < localVideoBias
           ? (
-              pickAvailableVideo(localVideoPool, CONFIG.swap.localReuseLimit) ||
-              pickAvailableVideo(allVideoPool)
+              pickLocalVideo(side) ||
+              pickAvailableVideo(allVideoPool, 0, side)
             )
-          : pickAvailableVideo(allVideoPool);
+          : (
+              pickAvailableVideo(allVideoPool, 0, side) ||
+              pickAvailableVideo(allVideoPool)
+            );
       if (!tex) return images[Math.floor(Math.random() * images.length)];
       cropTextureToAspect(tex, slabAspect);
       return tex;
@@ -2048,7 +2144,7 @@ function startSwapping(materials, images, videoPools, slabAspect) {
     setTimeout(() => {
       // If the pattern changed since this timer was set, stop
       if (gen !== swapGeneration) return;
-      const texture = pickTexture();
+      const texture = pickTexture(idx);
       if (
         isVideoTexture(texture) &&
         (
@@ -2094,7 +2190,15 @@ async function initHeadTracking(input) {
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480 }, audio: false,
+      video: {
+        width: { ideal: CONFIG.tracking.cameraWidth },
+        height: { ideal: CONFIG.tracking.cameraHeight },
+        frameRate: {
+          ideal: CONFIG.tracking.cameraFrameRate,
+          max: CONFIG.tracking.cameraFrameRate,
+        },
+      },
+      audio: false,
     });
   } catch (e) {
     throw new Error(`camera denied: ${e.name}`);
@@ -2125,12 +2229,14 @@ async function initHeadTracking(input) {
   try {
     faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
       baseOptions: { ...baseOpts, delegate: 'GPU' },
-      runningMode: 'VIDEO', numFaces: 1,
+      runningMode: 'VIDEO',
+      numFaces: 1,
     });
   } catch {
     faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
       baseOptions: { ...baseOpts, delegate: 'CPU' },
-      runningMode: 'VIDEO', numFaces: 1,
+      runningMode: 'VIDEO',
+      numFaces: 1,
     });
   }
 
@@ -2150,7 +2256,7 @@ async function initHeadTracking(input) {
         delegate: 'GPU',
       },
       runningMode: 'VIDEO',
-      numHands: 2,
+      numHands: CONFIG.tracking.handNumHands,
     });
   } catch {
     try {
@@ -2161,7 +2267,7 @@ async function initHeadTracking(input) {
           delegate: 'CPU',
         },
         runningMode: 'VIDEO',
-        numHands: 2,
+        numHands: CONFIG.tracking.handNumHands,
       });
     } catch (e) {
       console.warn('Hand landmarker unavailable:', e.message);
@@ -2192,29 +2298,52 @@ async function initHeadTracking(input) {
     return Math.min(1, Math.max(0, (avg / refLen - 1.0) / 1.4));
   }
 
+  const faceIntervalMs = 1000 / CONFIG.tracking.faceFps;
+  const handIntervalMs = 1000 / CONFIG.tracking.handFps;
+  const statusIntervalMs = 1000 / CONFIG.tracking.statusFps;
+  let lastFaceDetectMs = -Infinity;
+  let lastHandDetectMs = -Infinity;
+  let lastStatusRenderMs = -Infinity;
+  let lastFaceSeenMs = -Infinity;
+  let lastHandSeenMs = -Infinity;
+
+  function renderTrackingStatus(now, force = false) {
+    if (!force && now - lastStatusRenderMs < statusIntervalMs) return;
+    lastStatusRenderMs = now;
+    status.render();
+  }
+
   function poll() {
     const now = performance.now();
     if (webcamEl.readyState >= 2) {
       // Face tracking
-      const fr = faceLandmarker.detectForVideo(webcamEl, now);
-      if (fr.faceLandmarks && fr.faceLandmarks.length > 0) {
-        const nose = fr.faceLandmarks[0][1];
-        input.targetX = THREE.MathUtils.clamp(
-          (0.5 - nose.x) * 2 * CONFIG.camera.headSensitivity,
-          -1.6,
-          1.6
-        );
-        input.targetY = THREE.MathUtils.clamp(
-          (nose.y - 0.5) * 2 * CONFIG.camera.headSensitivity,
-          -1.6,
-          1.6
-        );
+      if (now - lastFaceDetectMs >= faceIntervalMs) {
+        lastFaceDetectMs = now;
+        const fr = faceLandmarker.detectForVideo(webcamEl, now);
+        if (fr.faceLandmarks && fr.faceLandmarks.length > 0) {
+          lastFaceSeenMs = now;
+          const nose = fr.faceLandmarks[0][1];
+          input.targetX = THREE.MathUtils.clamp(
+            (0.5 - nose.x) * 2 * CONFIG.camera.headSensitivity,
+            -1.6,
+            1.6
+          );
+          input.targetY = THREE.MathUtils.clamp(
+            (nose.y - 0.5) * 2 * CONFIG.camera.headSensitivity,
+            -1.6,
+            1.6
+          );
+        }
       }
+      status.tracking =
+        now - lastFaceSeenMs <= CONFIG.tracking.presenceGraceMs ? 'on' : 'off';
 
       // Hand tracking
-      if (handLandmarker) {
+      if (handLandmarker && now - lastHandDetectMs >= handIntervalMs) {
+        lastHandDetectMs = now;
         const hr = handLandmarker.detectForVideo(webcamEl, now);
         if (hr.landmarks && hr.landmarks.length > 0) {
+          lastHandSeenMs = now;
           // Average openness across all detected hands
           let totalOpen = 0;
           for (const hand of hr.landmarks) totalOpen += handOpenness(hand);
@@ -2226,14 +2355,12 @@ async function initHeadTracking(input) {
             input.rawTargetZoom = rawZoom;
           }
           status.hand = `hand: ${Math.max(0, Math.min(5, Math.round(openness * 5)))}/5`;
-          status.tracking = 'on';
-        } else {
+        } else if (now - lastHandSeenMs > CONFIG.tracking.presenceGraceMs) {
           input.rawTargetZoom = CONFIG.camera.defaultZoom;
           status.hand = 'hand: 0/5';
-          status.tracking = 'off';
         }
-        status.render();
       }
+      renderTrackingStatus(now);
     }
     requestAnimationFrame(poll);
   }
