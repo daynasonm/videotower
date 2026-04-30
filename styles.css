@@ -201,6 +201,15 @@ body.experience-live.assets-prompt #assets-status {
   color: rgba(57, 255, 20, 0.72);
 }
 
+.manual-target-outline,
+#about-link.manual-target-outline,
+#asset-show-button.manual-target-outline,
+#asset-show-button.manual-target-outline:disabled {
+  color: #39ff14;
+  border-color: rgba(57, 255, 20, 0.95);
+  opacity: 1;
+}
+
 @keyframes add-assets-pulse {
   from {
     box-shadow: 0 0 8px rgba(57, 255, 20, 0.18);
@@ -470,7 +479,7 @@ body.experience-live.assets-prompt #assets-status {
   visibility: visible;
 }
 
-#manual-highlight {
+.manual-highlight-box {
   position: fixed;
   left: 0;
   top: 0;
@@ -483,7 +492,20 @@ body.experience-live.assets-prompt #assets-status {
     0 0 24px rgba(57, 255, 20, 0.55);
   pointer-events: none;
   transform: translate3d(0, 0, 0);
-  transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease;
+  transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease, opacity 180ms ease;
+}
+
+.manual-highlight-box.is-shadow-only {
+  border-color: transparent;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.64);
+}
+
+.manual-highlight-box.is-ring-only {
+  box-shadow: none;
+}
+
+.manual-highlight-box.is-hidden {
+  opacity: 0;
 }
 
 #manual-panel {
@@ -563,6 +585,11 @@ body.experience-live.assets-prompt #assets-status {
 #manual-controls button:focus-visible {
   color: #fff;
   border-color: rgba(255, 255, 255, 0.24);
+}
+
+#manual-skip {
+  color: rgba(57, 255, 20, 0.78);
+  border-color: rgba(57, 255, 20, 0.34);
 }
 
 #manual-controls button:disabled {

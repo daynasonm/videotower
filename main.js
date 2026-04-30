@@ -127,8 +127,6 @@ const CONFIG = {
   video: {
     preferredWidth: 1920,
     minWidth: 720,
-    sphereReflectionSize: 320,
-    reflectionUpdateMs: 90,
   },
   image: {
     preferredWidth: 2400,
@@ -142,18 +140,6 @@ const CONFIG = {
   upload: {
     maxVideos: 15,
     processingDelayMs: 1200,
-  },
-  sphereOrbit: {
-    speed: 0.46,
-    size: 0.48,
-    clearance: 0.1,
-    radialDrift: 0,
-    tiltAngle: 0.2,
-    tiltHeading: 0.72,
-    bobAmplitude: 0.015,
-    haloScale: 1.03,
-    haloOpacity: 0.06,
-    selfRotationSpeed: 0.28,
   },
   nasa: {
     // Images sourced exclusively from Hubble Space Telescope and James Webb Space Telescope
@@ -379,19 +365,28 @@ const manualKickerEl = document.getElementById('manual-kicker');
 const manualTitleEl = document.getElementById('manual-title');
 const manualCopyEl = document.getElementById('manual-copy');
 const manualStepCountEl = document.getElementById('manual-step-count');
+const manualBackButton = document.getElementById('manual-back');
 const manualSkipButton = document.getElementById('manual-skip');
 const manualNextButton = document.getElementById('manual-next');
 
 const MANUAL_STEPS = [
   {
     target: '#add-assets-button',
+    highlightPadding: 0,
+    highlightStyle: 'shadow-only',
+    targetOutline: true,
+    panelPlacement: 'above',
+    panelAlign: 'right',
+    panelClearance: 24,
+    uploadSkippable: true,
     kicker: 'add video',
     title: 'Start with your videos',
-    copy: 'Click the highlighted add assets button. Your MP4 files become part of the tower instead of only watching the archive.',
+    copy: 'Click add assets to add your MP4 files, or skip to continue with the archive.',
   },
   {
     target: '#asset-select-button',
     highlightPadding: 0,
+    uploadSkippable: true,
     kicker: 'choose file',
     title: 'Select an MP4',
     copy: 'Click the highlighted select MP4 button and choose one or more short videos from your computer.',
@@ -400,19 +395,32 @@ const MANUAL_STEPS = [
   {
     target: '#asset-show-button',
     highlightPadding: 0,
+    highlightStyle: 'shadow-only',
+    targetOutline: true,
+    panelPlacement: 'above',
+    panelAlign: 'right',
+    panelClearance: 108,
+    uploadSkippable: true,
     kicker: 'reveal',
     title: 'Show them on the tower',
     copy: 'Click the highlighted show on tower button. The files process for a moment, then enter the moving slabs.',
     keepAssetModalOpen: true,
   },
   {
-    target: '#bottom-hud',
+    targets: ['#hint', '#pattern-label'],
+    highlightStyle: 'shadow-only',
+    targetOutline: true,
+    panelPlacement: 'above',
+    panelAlign: 'left',
+    panelClearance: 20,
     kicker: 'movement',
     title: 'Move the tower',
     copy: 'Move your head for parallax. Open or pinch your hand to change how close the tower feels.',
   },
   {
-    target: '#top-hud',
+    targets: ['#tracking-status', '#hand-status'],
+    highlightStyle: 'shadow-only',
+    targetOutline: true,
     kicker: 'sensing',
     panelPlacement: 'below',
     panelClearance: 80,
@@ -422,10 +430,17 @@ const MANUAL_STEPS = [
   {
     target: '#about-link',
     kicker: 'context',
+    highlightStyle: 'shadow-only',
+    targetOutline: true,
+    panelPlacement: 'below',
+    panelAlign: 'right',
+    panelClearance: 12,
     title: 'Read the project text',
     copy: 'About opens the concept statement. Coming back returns directly to the live tower.',
   },
 ];
+
+const FIRST_NON_UPLOAD_MANUAL_STEP = 3;
 
 let manualActive = false;
 let manualStepIndex = 0;
@@ -445,14 +460,8 @@ function closeAssetModalForManual() {
   assetModalClose?.click();
 }
 
-function updateManualLayout() {
-  if (!manualActive || !manualPanelEl || !manualHighlightEl) return;
-
-  const step = MANUAL_STEPS[manualStepIndex];
-  const target = document.querySelector(step.target);
-  const rect = target?.getBoundingClientRect();
-  const pad = step.highlightPadding ?? 8;
-  const fallback = {
+function getManualFallbackBox() {
+  return {
     left: window.innerWidth / 2 - 96,
     top: window.innerHeight / 2 - 36,
     width: 192,
@@ -460,23 +469,186 @@ function updateManualLayout() {
     right: window.innerWidth / 2 + 96,
     bottom: window.innerHeight / 2 + 36,
   };
-  const box = rect && rect.width > 0 && rect.height > 0 ? rect : fallback;
+}
 
-  const highlightLeft = Math.max(8, box.left - pad);
-  const highlightTop = Math.max(8, box.top - pad);
-  const highlightWidth = Math.min(window.innerWidth - highlightLeft - 8, box.width + pad * 2);
-  const highlightHeight = Math.min(window.innerHeight - highlightTop - 8, box.height + pad * 2);
+function getManualTargetRects(step) {
+  const selectors = step.targets || (step.target ? [step.target] : []);
+  return selectors
+    .map((selector) => document.querySelector(selector)?.getBoundingClientRect())
+    .filter((rect) => rect && rect.width > 0 && rect.height > 0);
+}
 
-  manualHighlightEl.style.left = `${Math.round(highlightLeft)}px`;
-  manualHighlightEl.style.top = `${Math.round(highlightTop)}px`;
-  manualHighlightEl.style.width = `${Math.round(highlightWidth)}px`;
-  manualHighlightEl.style.height = `${Math.round(highlightHeight)}px`;
+function getManualTargetElements(step) {
+  const selectors = step.targets || (step.target ? [step.target] : []);
+  return selectors
+    .map((selector) => document.querySelector(selector))
+    .filter(Boolean);
+}
+
+function clearManualTargetOutlines() {
+  document.querySelectorAll('.manual-target-outline').forEach((element) => {
+    element.classList.remove('manual-target-outline');
+  });
+}
+
+function updateManualTargetOutlines(step) {
+  clearManualTargetOutlines();
+  if (!step.targetOutline) return;
+
+  getManualTargetElements(step).forEach((element) => {
+    element.classList.add('manual-target-outline');
+  });
+}
+
+function mergeManualRects(rects) {
+  if (rects.length === 0) return getManualFallbackBox();
+
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const bottom = Math.max(...rects.map((rect) => rect.bottom));
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+    right,
+    bottom,
+  };
+}
+
+function getManualHighlightElements(count) {
+  const highlights = [
+    manualHighlightEl,
+    ...manualOverlayEl.querySelectorAll('.manual-highlight-extra'),
+  ].filter(Boolean);
+
+  while (highlights.length < count) {
+    const highlight = document.createElement('div');
+    highlight.className = 'manual-highlight-box manual-highlight-extra';
+    highlight.setAttribute('aria-hidden', 'true');
+    manualOverlayEl.insertBefore(highlight, manualPanelEl);
+    highlights.push(highlight);
+  }
+
+  highlights.forEach((highlight, index) => {
+    highlight.classList.toggle('is-hidden', index >= count);
+  });
+
+  return highlights.slice(0, count);
+}
+
+function resetManualHighlightClasses(highlight) {
+  highlight.className = 'manual-highlight-box';
+  if (highlight !== manualHighlightEl) highlight.classList.add('manual-highlight-extra');
+}
+
+function positionManualHighlight(highlight, box, pad = 0, style = 'default') {
+  const left = Math.max(8, box.left - pad);
+  const top = Math.max(8, box.top - pad);
+  const width = Math.min(window.innerWidth - left - 8, box.width + pad * 2);
+  const height = Math.min(window.innerHeight - top - 8, box.height + pad * 2);
+
+  resetManualHighlightClasses(highlight);
+  if (style === 'shadow-only') highlight.classList.add('is-shadow-only');
+  if (style === 'ring-only') highlight.classList.add('is-ring-only');
+
+  highlight.style.left = `${Math.round(left)}px`;
+  highlight.style.top = `${Math.round(top)}px`;
+  highlight.style.width = `${Math.round(width)}px`;
+  highlight.style.height = `${Math.round(height)}px`;
+
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+  };
+}
+
+function getManualAlignedLeft(box, panelRect, align = 'left') {
+  if (align === 'right') return box.right - panelRect.width;
+  if (align === 'center') return box.left + box.width / 2 - panelRect.width / 2;
+  return box.left;
+}
+
+function getManualAlignedTop(box, panelRect, align = 'top') {
+  if (align === 'bottom') return box.bottom - panelRect.height;
+  if (align === 'center') return box.top + box.height / 2 - panelRect.height / 2;
+  return box.top;
+}
+
+function getForcedManualPanelPosition(step, box, panelRect, clearance, margin, maxLeft, maxTop) {
+  if (!step.panelPlacement || step.panelPlacement === 'auto') return null;
+
+  let left = box.left;
+  let top = box.top;
+
+  if (step.panelPlacement === 'above' || step.panelPlacement === 'below') {
+    left = getManualAlignedLeft(box, panelRect, step.panelAlign);
+    top = step.panelPlacement === 'above'
+      ? box.top - panelRect.height - clearance
+      : box.bottom + clearance;
+  }
+
+  if (step.panelPlacement === 'left' || step.panelPlacement === 'right') {
+    left = step.panelPlacement === 'left'
+      ? box.left - panelRect.width - clearance
+      : box.right + clearance;
+    top = getManualAlignedTop(box, panelRect, step.panelAlign);
+  }
+
+  return {
+    left: clampManualPosition(left, margin, maxLeft),
+    top: clampManualPosition(top, margin, maxTop),
+  };
+}
+
+function updateManualLayout() {
+  if (!manualActive || !manualPanelEl || !manualHighlightEl) return;
+
+  const step = MANUAL_STEPS[manualStepIndex];
+  const pad = step.highlightPadding ?? 8;
+  const targetRects = getManualTargetRects(step);
+  const box = mergeManualRects(targetRects);
+  const shouldOutlineSeparately =
+    !step.targetOutline && (step.targets || []).length > 1 && targetRects.length > 1;
+  let highlightBox;
+
+  if (shouldOutlineSeparately) {
+    const highlights = getManualHighlightElements(targetRects.length + 1);
+    highlightBox = positionManualHighlight(highlights[0], box, pad, 'shadow-only');
+    targetRects.forEach((rect, index) => {
+      positionManualHighlight(highlights[index + 1], rect, pad, 'ring-only');
+    });
+  } else {
+    const [highlight] = getManualHighlightElements(1);
+    highlightBox = positionManualHighlight(highlight, box, pad, step.highlightStyle);
+  }
 
   const panelRect = manualPanelEl.getBoundingClientRect();
   const margin = 16;
   const clearance = step.panelClearance ?? (manualStepIndex < 3 ? 72 : margin);
   const maxPanelLeft = Math.max(margin, window.innerWidth - panelRect.width - margin);
   const maxPanelTop = Math.max(margin, window.innerHeight - panelRect.height - margin);
+  const forcedPosition = getForcedManualPanelPosition(
+    step,
+    box,
+    panelRect,
+    clearance,
+    margin,
+    maxPanelLeft,
+    maxPanelTop
+  );
+
+  if (forcedPosition) {
+    manualPanelEl.style.left = `${Math.round(forcedPosition.left)}px`;
+    manualPanelEl.style.top = `${Math.round(forcedPosition.top)}px`;
+    return;
+  }
+
   const candidatePositions = [
     { left: box.left, top: box.top - panelRect.height - clearance },
     { left: box.left, top: box.bottom + clearance },
@@ -488,22 +660,6 @@ function updateManualLayout() {
     top: clampManualPosition(position.top, margin, maxPanelTop),
   }));
 
-  if (step.panelPlacement === 'below') {
-    const forcedPosition = {
-      left: clampManualPosition(box.left, margin, maxPanelLeft),
-      top: clampManualPosition(box.bottom + clearance, margin, maxPanelTop),
-    };
-    manualPanelEl.style.left = `${Math.round(forcedPosition.left)}px`;
-    manualPanelEl.style.top = `${Math.round(forcedPosition.top)}px`;
-    return;
-  }
-
-  const highlightBox = {
-    left: highlightLeft,
-    top: highlightTop,
-    right: highlightLeft + highlightWidth,
-    bottom: highlightTop + highlightHeight,
-  };
   const intersectsHighlight = (position) => {
     const panelBox = {
       left: position.left,
@@ -543,18 +699,21 @@ function renderManualStep() {
   } else if (manualStepIndex > 2) {
     closeAssetModalForManual();
   }
+  updateManualTargetOutlines(step);
 
-  const isUploadStep = manualStepIndex < 3;
+  const isFirstStep = manualStepIndex === 0;
+  const isFinalStep = manualStepIndex === MANUAL_STEPS.length - 1;
 
   manualKickerEl.textContent = step.kicker;
   manualTitleEl.textContent = step.title;
   manualCopyEl.textContent = step.copy;
   manualStepCountEl.textContent = `step ${manualStepIndex + 1} of ${MANUAL_STEPS.length}`;
-  manualSkipButton.hidden = isUploadStep;
-  manualSkipButton.textContent = 'back';
-  manualSkipButton.disabled = manualStepIndex === 0;
-  manualNextButton.hidden = isUploadStep;
-  manualNextButton.textContent = manualStepIndex === MANUAL_STEPS.length - 1 ? 'done' : 'next';
+  manualBackButton.hidden = isFirstStep;
+  manualBackButton.disabled = isFirstStep;
+  manualSkipButton.hidden = isFinalStep;
+  manualSkipButton.textContent = 'skip';
+  manualNextButton.hidden = false;
+  manualNextButton.textContent = isFinalStep ? 'done' : 'next';
 
   scheduleManualLayoutUpdates();
 }
@@ -582,6 +741,20 @@ function backManualStep() {
   setManualStep(manualStepIndex - 1);
 }
 
+function skipManualUploads() {
+  closeAssetModalForManual();
+  setManualStep(FIRST_NON_UPLOAD_MANUAL_STEP);
+}
+
+function skipManualStep() {
+  const step = MANUAL_STEPS[manualStepIndex];
+  if (manualStepIndex < FIRST_NON_UPLOAD_MANUAL_STEP && step.uploadSkippable) {
+    skipManualUploads();
+    return;
+  }
+  hideExperienceManual();
+}
+
 function showExperienceManual({ force = false } = {}) {
   if (!manualOverlayEl) return;
   if (!force && manualAutoShown) return;
@@ -598,6 +771,7 @@ function showExperienceManual({ force = false } = {}) {
 function hideExperienceManual() {
   if (!manualOverlayEl) return;
   manualActive = false;
+  clearManualTargetOutlines();
   manualOverlayEl.classList.remove('open');
   manualOverlayEl.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('manual-open');
@@ -618,7 +792,8 @@ function handleManualUploadsShown() {
 }
 
 manualButton?.addEventListener('click', () => showExperienceManual({ force: true }));
-manualSkipButton?.addEventListener('click', backManualStep);
+manualBackButton?.addEventListener('click', backManualStep);
+manualSkipButton?.addEventListener('click', skipManualStep);
 manualNextButton?.addEventListener('click', advanceManualStep);
 window.addEventListener('resize', updateManualLayout);
 window.addEventListener('keydown', (e) => {
@@ -835,6 +1010,7 @@ function updateZoomInstruction(zoomValue) {
 const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('start');
 const aboutLink = document.getElementById('about-link');
+const shouldReturnToTower = window.location.hash === '#tower';
 let started = false;
 
 function startExperience() {
@@ -860,7 +1036,7 @@ aboutLink?.addEventListener('click', () => {
   );
 });
 
-if (window.location.hash === '#tower') {
+if (shouldReturnToTower) {
   startExperience();
 }
 
@@ -952,17 +1128,11 @@ async function run() {
   const tower = new THREE.Group();
   scene.add(tower);
 
-  const sphereOrbitGroup = new THREE.Group();
-  scene.add(sphereOrbitGroup);
-
   // These are mutable — they get replaced each time the pattern changes.
   let slabs = [];
   let allMaterials = [];
   let activePattern = null;   // reference to the current PATTERNS entry
   let swapGeneration = 0;     // incremented on rebuild to stop old swap timers
-
-  // Mirror room shader materials — updated each frame with elapsed time
-  let mirrorMaterials = [];
 
   setupAssetUploads({
     allVideoPool: videoPool,
@@ -987,7 +1157,6 @@ async function run() {
     });
     slabs        = [];
     allMaterials = [];
-    mirrorMaterials = [];
 
     const slabAspect = SLAB.width / SLAB.height;
     images.forEach((tex) => cropTextureToAspect(tex, slabAspect));
@@ -1060,7 +1229,6 @@ async function run() {
     const fitDistance = (maxExtent / 2) / Math.tan(hFov / 2) * 1.15;
     const scale = Math.min(1, activePattern.cameraDistance / fitDistance);
     tower.scale.setScalar(scale);
-    sphereOrbitGroup.scale.setScalar(scale);
   }
 
   window.addEventListener('resize', () => {
@@ -1086,7 +1254,7 @@ async function run() {
   // ---------- build initial pattern ----------
   buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
   document.body.classList.add('experience-live');
-  showExperienceManual();
+  if (!shouldReturnToTower) showExperienceManual();
 
   // ---------- orbiting reflective sphere ----------
   // Keep the mirror sphere on a true outer orbit so it circles the
