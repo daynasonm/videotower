@@ -172,17 +172,17 @@ const CONFIG = {
       'james webb deep field visualization',
       'cosmic nebula animation',
     ],
-    videoItemsPerQuery: 2,
+    videoItemsPerQuery: 1,
   },
   swap: {
     minDelayMs: 900,
     maxDelayMs: 2600,
-    videoWeight: 0.94,
-    localVideoBias: 0.9,
+    videoWeight: 0.96,
+    localVideoBias: 0.96,
     uploadedVideoBias: 0.78,
     uploadedInitialRepeats: 8,
     uploadedReuseLimit: 7,
-    localInitialRepeats: 5,
+    localInitialRepeats: 4,
     localReuseLimit: 9,
     localPanelSpanChance: 0.72,
     localPanelSpanCount: 4,
@@ -935,7 +935,7 @@ function setupAssetUploads({
         return texture;
       });
 
-      revealUploadedTextures(textures, getMaterials(), slabAspect);
+      revealVideoTextures(textures, getMaterials(), slabAspect, CONFIG.swap.uploadedInitialRepeats);
       isProcessingUploads = false;
       updateUploadUI('processed');
     }, CONFIG.upload.processingDelayMs);
@@ -1138,6 +1138,12 @@ async function run() {
       videoPool.push(v);
     });
     console.log(`[local] ${videos.length} local videos now in rotation`);
+    revealVideoTextures(
+      videos,
+      allMaterials,
+      SLAB.width / SLAB.height,
+      CONFIG.swap.localInitialRepeats
+    );
   }).catch((e) => {
     console.warn('Local video pool failed (non-fatal):', e);
   });
@@ -1226,10 +1232,17 @@ async function run() {
       { all: videoPool, local: localVideoPool, uploaded: uploadedVideoPool },
       slabAspect
     );
-    revealUploadedTextures(
+    revealVideoTextures(
+      localVideoPool,
+      allMaterials,
+      slabAspect,
+      CONFIG.swap.localInitialRepeats
+    );
+    revealVideoTextures(
       uploadedVideoPool.slice(0, CONFIG.upload.maxVideos),
       allMaterials,
-      slabAspect
+      slabAspect,
+      CONFIG.swap.uploadedInitialRepeats
     );
 
     // Set camera distance and scale tower to fit viewport
