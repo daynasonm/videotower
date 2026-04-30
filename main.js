@@ -175,16 +175,20 @@ const CONFIG = {
     videoItemsPerQuery: 2,
   },
   swap: {
-    minDelayMs: 1500,
-    maxDelayMs: 5000,
-    videoWeight: 0.58,
-    localVideoBias: 0.45,
+    minDelayMs: 900,
+    maxDelayMs: 2600,
+    videoWeight: 0.94,
+    localVideoBias: 0.9,
     uploadedVideoBias: 0.78,
     uploadedInitialRepeats: 8,
     uploadedReuseLimit: 7,
+    localInitialRepeats: 5,
+    localReuseLimit: 9,
+    localPanelSpanChance: 0.72,
+    localPanelSpanCount: 4,
     uploadedPanelSpanChance: 0.62,
     uploadedPanelSpanCount: 4,
-    videoPanelSpanChance: 0.14,
+    videoPanelSpanChance: 0.08,
   },
 };
 
@@ -975,7 +979,7 @@ function isMP4Upload(file) {
   return file?.type === 'video/mp4' || /\.mp4$/i.test(file?.name || '');
 }
 
-function revealUploadedTextures(textures, materials, slabAspect) {
+function revealVideoTextures(textures, materials, slabAspect, repeats) {
   if (!textures.length || !materials?.length) return;
 
   const targets = materials.slice();
@@ -985,10 +989,10 @@ function revealUploadedTextures(textures, materials, slabAspect) {
   }
 
   let targetIndex = 0;
-  const repeats = Math.max(1, CONFIG.swap.uploadedInitialRepeats || 1);
+  const repeatCount = Math.max(1, repeats || 1);
   textures.forEach((texture, idx) => {
     cropTextureToAspect(texture, slabAspect);
-    for (let repeat = 0; repeat < repeats && targetIndex < targets.length; repeat++) {
+    for (let repeat = 0; repeat < repeatCount && targetIndex < targets.length; repeat++) {
       setPanelTexture(targets[targetIndex], texture);
       targetIndex++;
     }
@@ -1010,7 +1014,34 @@ function updateZoomInstruction(zoomValue) {
 const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('start');
 const aboutLink = document.getElementById('about-link');
-const shouldReturnToTower = window.location.hash === '#tower';
+const RETURN_TO_TOWER_KEY = 'videoTower.returnToLive';
+
+function setReturnToTowerFlag() {
+  try {
+    window.sessionStorage.setItem(RETURN_TO_TOWER_KEY, '1');
+  } catch (e) {
+    // Storage can be unavailable in some privacy modes; the #tower hash still works.
+  }
+}
+
+function readReturnToTowerFlag() {
+  try {
+    return window.sessionStorage.getItem(RETURN_TO_TOWER_KEY) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function clearReturnToTowerFlag() {
+  try {
+    window.sessionStorage.removeItem(RETURN_TO_TOWER_KEY);
+  } catch (e) {
+    // Ignore storage failures; the flag is only a navigation hint.
+  }
+}
+
+const shouldReturnToTower = window.location.hash === '#tower' || readReturnToTowerFlag();
+if (shouldReturnToTower) clearReturnToTowerFlag();
 let started = false;
 
 function startExperience() {
@@ -1028,6 +1059,7 @@ function startExperience() {
 startBtn.addEventListener('click', startExperience);
 
 aboutLink?.addEventListener('click', () => {
+  setReturnToTowerFlag();
   if (!started || window.location.hash === '#tower') return;
   window.history.replaceState(
     null,
@@ -1073,14 +1105,6 @@ async function run() {
   const rim = new THREE.DirectionalLight(0xffffff, 0.3);
   rim.position.set(3, 2, 4);
   scene.add(rim);
-
-  // Create webcam texture early — it starts black and goes live once
-  // camera access is granted. Mirror slab faces reference this texture.
-  const webcamEl  = document.getElementById('webcam');
-  const webcamTex = new THREE.VideoTexture(webcamEl);
-  webcamTex.colorSpace = THREE.SRGBColorSpace;
-  webcamTex.minFilter  = THREE.LinearFilter;
-  webcamTex.magFilter  = THREE.LinearFilter;
 
   // ---------- load NASA images ----------
   status.render();
@@ -1256,63 +1280,6 @@ async function run() {
   document.body.classList.add('experience-live');
   if (!shouldReturnToTower) showExperienceManual();
 
-  // ---------- orbiting reflective sphere ----------
-  // Keep the mirror sphere on a true outer orbit so it circles the
-  // tower instead of cutting through its center.
-  const cubeTarget = new THREE.WebGLCubeRenderTarget(CONFIG.video.sphereReflectionSize, {
-    generateMipmaps: true,
-    minFilter: THREE.LinearMipmapLinearFilter,
-  });
-  const cubeCamera = new THREE.CubeCamera(0.05, 30, cubeTarget);
-  cubeCamera.position.set(0, 0, 0);
-  sphereOrbitGroup.add(cubeCamera);
-
-  const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(CONFIG.sphereOrbit.size, 128, 128),
-    new THREE.MeshPhysicalMaterial({
-      color: 0xf4f7ff,
-      envMap: cubeTarget.texture,
-      metalness: 0.92,
-      roughness: 0.04,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.02,
-      envMapIntensity: 1.0,
-    })
-  );
-  sphere.position.set(0, 0, 0);
-  sphere.scale.set(1, 1, 1);
-  sphereOrbitGroup.add(sphere);
-
-  const sphereHalo = new THREE.Mesh(
-    new THREE.SphereGeometry(
-      CONFIG.sphereOrbit.size * CONFIG.sphereOrbit.haloScale,
-      64,
-      64
-    ),
-    new THREE.MeshBasicMaterial({
-      color: 0xe8eeff,
-      transparent: true,
-      opacity: CONFIG.sphereOrbit.haloOpacity,
-      side: THREE.BackSide,
-      depthWrite: false,
-    })
-  );
-  sphere.add(sphereHalo);
-
-  const safeOrbitRadius =
-    Math.hypot(SLAB.width / 2, SLAB.depth / 2) +
-    CONFIG.sphereOrbit.size +
-    CONFIG.sphereOrbit.clearance;
-  const sphereOrbitOffset = new THREE.Vector3();
-  const sphereOrbitTilt = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(
-      CONFIG.sphereOrbit.tiltAngle,
-      CONFIG.sphereOrbit.tiltHeading,
-      0,
-      'YXZ'
-    )
-  );
-
   // ---------- input (head tracking + hand zoom) ----------
   function getZoomTravel(zoomValue) {
     if (
@@ -1345,7 +1312,6 @@ async function run() {
 
   // ---------- animation loop ----------
   const clock = new THREE.Clock();
-  let lastReflectionUpdateMs = -Infinity;
 
   function animate() {
     const dt  = Math.min(clock.getDelta(), 0.05);
@@ -1398,48 +1364,6 @@ async function run() {
       const wave  = rot.waveAmplitude * Math.sin(k * i - rot.waveSpeed * t);
       const helix = pat.helixOffset * i;
       slabs[i].rotation.y = baseRot + wave + helix;
-    }
-
-    const orbitPhase = t * CONFIG.sphereOrbit.speed;
-    const twistPhase = orbitPhase * 0.5;
-    const orbitRadius =
-      safeOrbitRadius +
-      Math.sin(orbitPhase * 2) * CONFIG.sphereOrbit.radialDrift;
-
-    sphereOrbitOffset
-      .set(
-        Math.cos(orbitPhase) * orbitRadius,
-        0,
-        Math.sin(orbitPhase) * orbitRadius
-      )
-      .applyQuaternion(sphereOrbitTilt);
-    sphereOrbitOffset.y +=
-      Math.sin(orbitPhase + Math.PI / 6) * CONFIG.sphereOrbit.bobAmplitude;
-
-    sphere.position.copy(sphereOrbitOffset);
-    sphere.rotation.set(
-      Math.sin(twistPhase) * 0.32,
-      orbitPhase * CONFIG.sphereOrbit.selfRotationSpeed,
-      Math.cos(twistPhase) * 0.22
-    );
-    cubeCamera.position.copy(sphere.position);
-
-    // Cube-camera updates are expensive because they render the scene
-    // six extra times. Updating a few times per second keeps the chrome
-    // look while dramatically reducing lag.
-    const nowMs = performance.now();
-    if (nowMs - lastReflectionUpdateMs >= CONFIG.video.reflectionUpdateMs) {
-      sphere.visible   = false;
-      scene.background = webcamTex;
-      cubeCamera.update(renderer, scene);
-      scene.background = null;
-      sphere.visible   = true;
-      lastReflectionUpdateMs = nowMs;
-    }
-
-    // Tick any other mirror shader time uniforms
-    for (let m = 0; m < mirrorMaterials.length; m++) {
-      mirrorMaterials[m].uniforms.time.value = t;
     }
 
     renderer.render(scene, camera);
@@ -1738,8 +1662,8 @@ async function probeNumberedLocalVideoEntries(manifestUrl) {
   const directoryUrl = new URL('./', new URL(manifestUrl, window.location.href));
   const candidates = Array.from(
     { length: CONFIG.localMedia.numericProbeMax },
-    (_, idx) => `${idx + 1}.mp4`
-  );
+    (_, idx) => [`${idx + 1}.mp4`, `${idx + 1}.MP4`]
+  ).flat();
 
   const results = await Promise.all(candidates.map(async (file) => {
     const url = new URL(file, directoryUrl).toString();
@@ -2026,6 +1950,10 @@ function isUploadedVideoTexture(texture) {
   return texture?.userData?.source === 'upload';
 }
 
+function isLocalVideoTexture(texture) {
+  return texture?.userData?.source === 'local';
+}
+
 function resetActiveVideoTextureCounts() {
   activeVideoTextureCounts = new Map();
 }
@@ -2081,11 +2009,13 @@ function startSwapping(materials, images, videoPools, slabAspect) {
     }
 
     if (allVideoPool.length > 0 && Math.random() < videoWeight) {
-      const preferredPool =
+      const tex =
         localVideoPool.length > 0 && Math.random() < localVideoBias
-          ? localVideoPool
-          : allVideoPool;
-      const tex = pickAvailableVideo(preferredPool) || pickAvailableVideo(allVideoPool);
+          ? (
+              pickAvailableVideo(localVideoPool, CONFIG.swap.localReuseLimit) ||
+              pickAvailableVideo(allVideoPool)
+            )
+          : pickAvailableVideo(allVideoPool);
       if (!tex) return images[Math.floor(Math.random() * images.length)];
       cropTextureToAspect(tex, slabAspect);
       return tex;
@@ -2111,6 +2041,8 @@ function startSwapping(materials, images, videoPools, slabAspect) {
         (
           isUploadedVideoTexture(texture)
             ? Math.random() < CONFIG.swap.uploadedPanelSpanChance
+            : isLocalVideoTexture(texture)
+              ? Math.random() < CONFIG.swap.localPanelSpanChance
             : Math.random() < CONFIG.swap.videoPanelSpanChance &&
               (activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) === 0
         )
@@ -2118,7 +2050,11 @@ function startSwapping(materials, images, videoPools, slabAspect) {
         showVideoAcrossPanelRun(
           idx,
           texture,
-          isUploadedVideoTexture(texture) ? CONFIG.swap.uploadedPanelSpanCount : 3
+          isUploadedVideoTexture(texture)
+            ? CONFIG.swap.uploadedPanelSpanCount
+            : isLocalVideoTexture(texture)
+              ? CONFIG.swap.localPanelSpanCount
+              : 3
         );
       } else {
         setPanelTexture(mat, texture);
@@ -2135,105 +2071,6 @@ function startSwapping(materials, images, videoPools, slabAspect) {
   });
 }
 
-// =============================================================
-// MIRROR MATERIAL FACTORY
-// =============================================================
-// Creates a ShaderMaterial that maps the live webcam VideoTexture onto a
-// slab face with one of four lens-distortion effects. Called once per
-// mirror-slab face during buildFromPattern(); the returned material is
-// pushed into mirrorMaterials[] so animate() can tick the time uniform.
-//
-// Distortion types (fIdx 0–3, one per face of the slab):
-//   0  BARREL     — convex bulge, like a fun-house mirror bowing outward
-//   1  FISHEYE    — full hemisphere warp, fits your whole body in the frame
-//   2  WAVE       — animated sinusoidal ripple, face melts in real time
-//   3  PINCUSHION — concave pull, edges stretch toward the centre
-
-const MIRROR_VERT = /* glsl */`
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const MIRROR_FRAGS = [
-  /* 0 — BARREL */ /* glsl */`
-    uniform sampler2D webcamTex;
-    uniform float time;
-    varying vec2 vUv;
-    void main() {
-      vec2 uv = vec2(1.0 - vUv.x, vUv.y);
-      vec2 c  = uv - 0.5;
-      float r2 = dot(c, c);
-      c *= (1.0 + 1.3 * r2);
-      uv = c + 0.5;
-      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-      else
-        gl_FragColor = texture2D(webcamTex, uv);
-    }
-  `,
-  /* 1 — FISHEYE */ /* glsl */`
-    #define PI 3.14159265
-    uniform sampler2D webcamTex;
-    uniform float time;
-    varying vec2 vUv;
-    void main() {
-      vec2 uv = vec2(1.0 - vUv.x, vUv.y);
-      vec2 c  = uv - 0.5;
-      float r = length(c);
-      float nr = sin(r * PI * 0.95) * 0.5;
-      if (r > 0.0) c = c * (nr / r);
-      uv = c + 0.5;
-      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-      else
-        gl_FragColor = texture2D(webcamTex, uv);
-    }
-  `,
-  /* 2 — WAVE */ /* glsl */`
-    uniform sampler2D webcamTex;
-    uniform float time;
-    varying vec2 vUv;
-    void main() {
-      vec2 uv = vec2(1.0 - vUv.x, vUv.y);
-      uv.x += sin(uv.y * 10.0 + time * 2.1) * 0.045;
-      uv.y += sin(uv.x *  8.0 + time * 1.6) * 0.035;
-      uv.x += cos(uv.y *  5.5 - time * 1.0) * 0.020;
-      uv = clamp(uv, 0.0, 1.0);
-      gl_FragColor = texture2D(webcamTex, uv);
-    }
-  `,
-  /* 3 — PINCUSHION */ /* glsl */`
-    uniform sampler2D webcamTex;
-    uniform float time;
-    varying vec2 vUv;
-    void main() {
-      vec2 uv = vec2(1.0 - vUv.x, vUv.y);
-      vec2 c  = uv - 0.5;
-      float r2 = dot(c, c);
-      c *= (1.0 - 0.85 * r2);
-      uv = c + 0.5;
-      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-      else
-        gl_FragColor = texture2D(webcamTex, uv);
-    }
-  `,
-];
-
-function createMirrorMaterial(webcamTex, type) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      webcamTex: { value: webcamTex },
-      time:      { value: 0 },
-    },
-    vertexShader:   MIRROR_VERT,
-    fragmentShader: MIRROR_FRAGS[type % MIRROR_FRAGS.length],
-    side: THREE.DoubleSide,
-  });
-}
 // =============================================================
 // HEAD TRACKING — head position drives camera parallax + tower spin
 // =============================================================

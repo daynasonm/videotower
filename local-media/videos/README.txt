@@ -23,6 +23,8 @@ Notes:
 - Keep files in this same folder unless you intentionally use a relative path.
 - MP4 and WebM are the safest formats for browser playback.
 - After adding files or editing manifest.json, refresh the page.
+- If you use manifest.json, every array item needs a comma except the last one.
+- File paths in manifest.json should match the filename case, such as 12.MP4.
 - manifest.json is optional for files in this folder, but useful for labels.
 - Non-numbered files depend on your local web server exposing the folder listing
   or being listed in manifest.json.
