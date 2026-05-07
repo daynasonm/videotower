@@ -256,7 +256,7 @@ function createRuntimeProfile(device) {
     videoPreload: 'metadata',
     imageTextureLimit: 48,
     imageConcurrency: 4,
-    localVideoLimit: 12,
+    localVideoLimit: 40,
     nasaVideoLimit: 0,
     preferSmallerImages: true,
     slabCount: 24,
@@ -272,17 +272,18 @@ function createRuntimeProfile(device) {
       statusFps: 4,
     },
     swap: {
-      minDelayMs: 1600,
-      maxDelayMs: 3600,
-      videoWeight: 0.72,
-      localInitialMaxVideos: 6,
-      localActiveVideoLimit: 6,
-      localInitialRepeats: 2,
+      minDelayMs: 1300,
+      maxDelayMs: 3000,
+      videoWeight: 0.94,
+      localInitialMaxVideos: 18,
+      localActiveVideoLimit: 12,
+      localInitialRepeats: 3,
       localReuseLimit: 2,
-      localPanelSpanChance: 0.42,
-      localPanelSpanCount: 2,
-      uploadedPanelSpanChance: 0.36,
-      uploadedPanelSpanCount: 2,
+      localPanelSpanChance: 0.68,
+      localPanelSpanCount: 3,
+      uploadedVideoBias: 0.9,
+      uploadedPanelSpanChance: 0.58,
+      uploadedPanelSpanCount: 3,
     },
   };
 }
@@ -442,12 +443,22 @@ const assetFileListEl = document.getElementById('asset-file-list');
 
 const status = {
   assets: 0, total: 0,
+  localVideos: 0,
   uploads: 0,
   tracking: 'off',
   hand: 'hand: 0/5',
   error: '',
   render() {
-    assetsStatusEl.textContent = `uploads ${this.uploads}/${CONFIG.upload.maxVideos}`;
+    const hasLocalVideos = this.localVideos > 0;
+    assetsStatusEl.textContent = hasLocalVideos
+      ? this.uploads > 0
+        ? `local ${this.localVideos} + ${this.uploads}`
+        : `local ${this.localVideos}`
+      : `uploads ${this.uploads}/${CONFIG.upload.maxVideos}`;
+    document.body.classList.toggle(
+      'assets-prompt',
+      this.localVideos === 0 && this.uploads === 0
+    );
     trackingStatusEl.textContent = `tracking ${this.tracking}`;
     handStatusEl.textContent = this.hand || 'hand: 0/5';
   },
@@ -934,7 +945,6 @@ function setupAssetUploads({
     assetMessage = message;
     status.uploads = uploads.length;
     status.render();
-    document.body.classList.toggle('assets-prompt', uploads.length === 0);
 
     const remaining = Math.max(0, CONFIG.upload.maxVideos - uploads.length);
     const pendingCount = uploads.filter(({ texture }) => !texture).length;
@@ -1291,6 +1301,8 @@ async function run() {
       localVideoPool.push(v);
       videoPool.push(v);
     });
+    status.localVideos = videos.length;
+    status.render();
     console.log(`[local] ${videos.length} local videos now in rotation`);
     revealVideoTextures(
       sampleVideoTextures(videos, CONFIG.swap.localInitialMaxVideos),
@@ -1847,44 +1859,18 @@ async function localVideoExists(url) {
   }
 }
 
-async function getLocalVideoByteSize(entry, manifestBase) {
-  const url = new URL(entry.file, manifestBase).toString();
-
-  try {
-    const res = await fetch(`${url}?t=${Date.now()}`, {
-      method: 'HEAD',
-      cache: 'no-store',
-    });
-    const byteSize = Number(res.headers.get('content-length'));
-    return {
-      ...entry,
-      byteSize: Number.isFinite(byteSize) && byteSize > 0 ? byteSize : Infinity,
-    };
-  } catch {
-    return { ...entry, byteSize: Infinity };
-  }
-}
-
-async function selectLocalVideoEntries(entries, manifestBase) {
+async function selectLocalVideoEntries(entries) {
   const limit = RUNTIME_PROFILE.localVideoLimit;
   if (!Number.isFinite(limit) || entries.length <= limit) return entries;
 
-  const measured = await mapWithConcurrency(
-    entries,
-    6,
-    (entry) => getLocalVideoByteSize(entry, manifestBase)
-  );
+  const stride = entries.length / limit;
+  const selected = Array.from({ length: limit }, (_, idx) => {
+    const entryIndex = Math.min(entries.length - 1, Math.floor(idx * stride));
+    return entries[entryIndex];
+  });
 
-  const selected = measured
-    .sort((a, b) => {
-      const aSize = Number.isFinite(a.byteSize) ? a.byteSize : Number.MAX_SAFE_INTEGER;
-      const bSize = Number.isFinite(b.byteSize) ? b.byteSize : Number.MAX_SAFE_INTEGER;
-      return aSize - bSize || a.file.localeCompare(b.file, undefined, { numeric: true });
-    })
-    .slice(0, limit);
-
-  console.log(`[local] using ${selected.length}/${entries.length} smallest videos for mobile Safari`);
-  return selected.map(({ byteSize, ...entry }) => entry);
+  console.log(`[local] using ${selected.length}/${entries.length} manifest videos for mobile Safari`);
+  return selected;
 }
 
 async function probeNumberedLocalVideoEntries(manifestUrl) {
@@ -2052,22 +2038,20 @@ async function loadLocalVideos() {
     console.warn('[local] manifest load failed:', e.message);
   }
 
-  let discoveredEntries = [];
-  let probedEntries = [];
-  if (!(RUNTIME_PROFILE.constrained && manifestEntries.length > 0)) {
-    [discoveredEntries, probedEntries] = await Promise.all([
+  let entries = manifestEntries;
+  if (entries.length === 0) {
+    const [discoveredEntries, probedEntries] = await Promise.all([
       discoverLocalVideoEntries(manifestUrl),
       probeNumberedLocalVideoEntries(manifestUrl),
     ]);
+    const entryMap = new Map();
+    probedEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
+    discoveredEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
+    entries = Array.from(entryMap.values());
   }
-  const entryMap = new Map();
-  probedEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
-  discoveredEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
-  manifestEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
-  const entries = Array.from(entryMap.values());
   if (entries.length === 0) return [];
 
-  const selectedEntries = await selectLocalVideoEntries(entries, manifestBase);
+  const selectedEntries = await selectLocalVideoEntries(entries);
 
   return selectedEntries.map(({ file, label }) => {
     const url = new URL(file, manifestBase).toString();
