@@ -552,6 +552,7 @@ const MANUAL_STEPS = [
 ];
 
 const FIRST_NON_UPLOAD_MANUAL_STEP = 3;
+const MOBILE_MANUAL_STEPS = MANUAL_STEPS.slice(FIRST_NON_UPLOAD_MANUAL_STEP);
 
 let manualActive = false;
 let manualStepIndex = 0;
@@ -569,6 +570,14 @@ function ensureAssetModalOpenForManual() {
 function closeAssetModalForManual() {
   if (!assetModalEl?.classList.contains('open')) return;
   assetModalClose?.click();
+}
+
+function useMobileManualSteps() {
+  return RUNTIME_PROFILE.constrained;
+}
+
+function getManualSteps() {
+  return useMobileManualSteps() ? MOBILE_MANUAL_STEPS : MANUAL_STEPS;
 }
 
 function getManualFallbackBox() {
@@ -720,7 +729,7 @@ function getForcedManualPanelPosition(step, box, panelRect, clearance, margin, m
 function updateManualLayout() {
   if (!manualActive || !manualPanelEl || !manualHighlightEl) return;
 
-  const step = MANUAL_STEPS[manualStepIndex];
+  const step = getManualSteps()[manualStepIndex];
   const pad = step.highlightPadding ?? 8;
   const targetRects = getManualTargetRects(step);
   const box = mergeManualRects(targetRects);
@@ -804,21 +813,22 @@ function scheduleManualLayoutUpdates() {
 function renderManualStep() {
   if (!manualActive) return;
 
-  const step = MANUAL_STEPS[manualStepIndex];
+  const manualSteps = getManualSteps();
+  const step = manualSteps[manualStepIndex];
   if (step.keepAssetModalOpen) {
     ensureAssetModalOpenForManual();
-  } else if (manualStepIndex > 2) {
+  } else if (useMobileManualSteps() || manualStepIndex > 2) {
     closeAssetModalForManual();
   }
   updateManualTargetOutlines(step);
 
   const isFirstStep = manualStepIndex === 0;
-  const isFinalStep = manualStepIndex === MANUAL_STEPS.length - 1;
+  const isFinalStep = manualStepIndex === manualSteps.length - 1;
 
   manualKickerEl.textContent = step.kicker;
   manualTitleEl.textContent = step.title;
   manualCopyEl.textContent = step.copy;
-  manualStepCountEl.textContent = `step ${manualStepIndex + 1} of ${MANUAL_STEPS.length}`;
+  manualStepCountEl.textContent = `step ${manualStepIndex + 1} of ${manualSteps.length}`;
   manualBackButton.hidden = isFirstStep;
   manualBackButton.disabled = isFirstStep;
   manualSkipButton.hidden = isFinalStep;
@@ -830,16 +840,16 @@ function renderManualStep() {
 }
 
 function setManualStep(index) {
-  manualStepIndex = clampManualPosition(index, 0, MANUAL_STEPS.length - 1);
+  manualStepIndex = clampManualPosition(index, 0, getManualSteps().length - 1);
   renderManualStep();
 }
 
 function advanceManualStep() {
-  if (manualStepIndex === 0) {
+  if (!useMobileManualSteps() && manualStepIndex === 0) {
     ensureAssetModalOpenForManual();
   }
 
-  if (manualStepIndex >= MANUAL_STEPS.length - 1) {
+  if (manualStepIndex >= getManualSteps().length - 1) {
     hideExperienceManual();
     return;
   }
@@ -863,8 +873,8 @@ function skipManualStep() {
     return;
   }
 
-  const step = MANUAL_STEPS[manualStepIndex];
-  if (manualStepIndex < FIRST_NON_UPLOAD_MANUAL_STEP && step.uploadSkippable) {
+  const step = getManualSteps()[manualStepIndex];
+  if (!useMobileManualSteps() && manualStepIndex < FIRST_NON_UPLOAD_MANUAL_STEP && step.uploadSkippable) {
     skipManualUploads();
     return;
   }
@@ -895,6 +905,10 @@ function hideExperienceManual() {
 
 function handleManualAssetFilesChanged(acceptedCount) {
   if (!manualActive || acceptedCount <= 0) return;
+  if (useMobileManualSteps()) {
+    renderManualStep();
+    return;
+  }
   if (manualStepIndex <= 1) {
     setManualStep(2);
     return;
@@ -904,6 +918,10 @@ function handleManualAssetFilesChanged(acceptedCount) {
 
 function handleManualUploadsShown() {
   if (!manualActive) return;
+  if (useMobileManualSteps()) {
+    renderManualStep();
+    return;
+  }
   setManualStep(3);
 }
 
@@ -1462,6 +1480,9 @@ async function run() {
   // ---------- build initial pattern ----------
   buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
   document.body.classList.add('experience-live');
+  if (!isReturningFromAbout && RUNTIME_PROFILE.constrained) {
+    showExperienceManual({ force: true });
+  }
   if (!isReturningFromAbout && !RUNTIME_PROFILE.constrained) {
     showExperienceManual({ force: true });
   }
