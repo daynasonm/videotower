@@ -206,6 +206,102 @@ const CONFIG = {
 
 let maxTextureAnisotropy = 1;
 
+function matchRuntimeMedia(query) {
+  return typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(query).matches;
+}
+
+function getRuntimeDeviceInfo() {
+  const nav = typeof navigator !== 'undefined' ? navigator : {};
+  const ua = String(nav.userAgent || '');
+  const platform = String(nav.platform || '');
+  const maxTouchPoints = Number(nav.maxTouchPoints) || 0;
+  const isTouchMac = platform === 'MacIntel' && maxTouchPoints > 1;
+  const isIOS = /iPad|iPhone|iPod/i.test(ua) || isTouchMac;
+  const isSafari = /safari/i.test(ua) &&
+    !/(chrome|crios|fxios|edgios|opr|android)/i.test(ua);
+  const coarsePointer = matchRuntimeMedia('(pointer: coarse)');
+  const smallViewport = matchRuntimeMedia('(max-width: 700px)');
+
+  return {
+    isIOS,
+    isSafari,
+    coarsePointer,
+    smallViewport,
+    constrained: isIOS || (isSafari && (coarsePointer || smallViewport)) ||
+      (coarsePointer && smallViewport),
+  };
+}
+
+function createRuntimeProfile(device) {
+  if (!device.constrained) {
+    return {
+      constrained: false,
+      antialias: true,
+      renderFps: 0,
+      videoPreload: 'auto',
+      imageTextureLimit: Infinity,
+      imageConcurrency: 10,
+      localVideoLimit: Infinity,
+      nasaVideoLimit: Infinity,
+      preferSmallerImages: false,
+    };
+  }
+
+  return {
+    constrained: true,
+    antialias: false,
+    renderFps: 30,
+    videoPreload: 'metadata',
+    imageTextureLimit: 48,
+    imageConcurrency: 4,
+    localVideoLimit: 12,
+    nasaVideoLimit: 0,
+    preferSmallerImages: true,
+    slabCount: 24,
+    maxPixelRatio: 1.15,
+    maxAnisotropy: 2,
+    uploadMaxVideos: 8,
+    tracking: {
+      cameraWidth: 320,
+      cameraHeight: 240,
+      cameraFrameRate: 15,
+      faceFps: 8,
+      handFps: 3,
+      statusFps: 4,
+    },
+    swap: {
+      minDelayMs: 1600,
+      maxDelayMs: 3600,
+      videoWeight: 0.72,
+      localInitialMaxVideos: 6,
+      localActiveVideoLimit: 6,
+      localInitialRepeats: 2,
+      localReuseLimit: 2,
+      localPanelSpanChance: 0.42,
+      localPanelSpanCount: 2,
+      uploadedPanelSpanChance: 0.36,
+      uploadedPanelSpanCount: 2,
+    },
+  };
+}
+
+function applyRuntimeProfile(profile) {
+  if (!profile.constrained) return;
+
+  SLAB.count = profile.slabCount;
+  CONFIG.camera.maxPixelRatio = profile.maxPixelRatio;
+  CONFIG.image.maxAnisotropy = profile.maxAnisotropy;
+  CONFIG.upload.maxVideos = profile.uploadMaxVideos;
+  Object.assign(CONFIG.tracking, profile.tracking);
+  Object.assign(CONFIG.swap, profile.swap);
+}
+
+const RUNTIME_DEVICE = getRuntimeDeviceInfo();
+const RUNTIME_PROFILE = createRuntimeProfile(RUNTIME_DEVICE);
+applyRuntimeProfile(RUNTIME_PROFILE);
+
 // =============================================================
 // LOADER + FATAL UI
 // =============================================================
@@ -251,44 +347,40 @@ function fatal(title, details) {
 // =============================================================
 let faviconFlashTimer = null;
 let faviconFlashOn = false;
-let cameraFaviconActive = false;
 
-function createDotFavicon(color, dotOpacity, glowOpacity) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-      <defs>
-        <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="7" result="blur"/>
-          <feMerge>
-            <feMergeNode in="blur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-      </defs>
-      <circle cx="32" cy="32" r="18" fill="${color}" opacity="${glowOpacity}" filter="url(#glow)"/>
-      <circle cx="32" cy="32" r="12" fill="${color}" opacity="${dotOpacity}"/>
-    </svg>
-  `;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+const FAVICON_VERSION = 'green-20260507';
+const FAVICON_ON = `favicon-on.svg?v=${FAVICON_VERSION}`;
+const FAVICON_DIM = `favicon-dim.svg?v=${FAVICON_VERSION}`;
+
+function getFaviconLinks() {
+  let links = Array.from(document.querySelectorAll('link[rel~="icon"]'))
+    .filter((link) => !link.rel.split(/\s+/).includes('mask-icon'));
+  if (links.length > 0) return links;
+
+  const link = document.createElement('link');
+  link.rel = 'icon';
+  document.head.append(link);
+  links = [link];
+  return links;
 }
 
-const FAVICON_OFF = createDotFavicon('#2b3038', 0.55, 0.08);
-const FAVICON_CAMERA_ON = createDotFavicon('#39ff14', 1, 0.78);
-const FAVICON_CAMERA_DIM = createDotFavicon('#39ff14', 0.14, 0.16);
-
-function getFaviconLink() {
-  let link = document.querySelector('link[rel~="icon"]');
+function ensureMaskIconLink() {
+  let link = document.querySelector('link[rel~="mask-icon"]');
   if (!link) {
     link = document.createElement('link');
-    link.rel = 'icon';
+    link.rel = 'mask-icon';
     document.head.append(link);
   }
-  link.type = 'image/svg+xml';
-  return link;
+  link.href = `favicon-mask.svg?v=${FAVICON_VERSION}`;
+  link.setAttribute('color', '#39ff14');
 }
 
 function setFavicon(href) {
-  getFaviconLink().href = href;
+  getFaviconLinks().forEach((link) => {
+    link.type = 'image/svg+xml';
+    link.href = href;
+  });
+  ensureMaskIconLink();
 }
 
 function clearFaviconFlashTimer() {
@@ -297,47 +389,39 @@ function clearFaviconFlashTimer() {
   faviconFlashTimer = null;
 }
 
-function isPresentOnSite() {
-  return document.visibilityState === 'visible' && document.hasFocus();
-}
-
 function updateCameraFavicon() {
-  if (!cameraFaviconActive) {
+  if (document.visibilityState !== 'visible') {
     clearFaviconFlashTimer();
-    setFavicon(FAVICON_OFF);
-    return;
-  }
-
-  if (!isPresentOnSite()) {
-    clearFaviconFlashTimer();
-    setFavicon(FAVICON_CAMERA_ON);
+    setFavicon(FAVICON_ON);
     return;
   }
 
   if (faviconFlashTimer) return;
   faviconFlashOn = true;
-  setFavicon(FAVICON_CAMERA_ON);
+  setFavicon(FAVICON_ON);
   faviconFlashTimer = window.setInterval(() => {
     faviconFlashOn = !faviconFlashOn;
-    setFavicon(faviconFlashOn ? FAVICON_CAMERA_ON : FAVICON_CAMERA_DIM);
+    setFavicon(faviconFlashOn ? FAVICON_ON : FAVICON_DIM);
   }, 650);
 }
 
 function startCameraFaviconFlash() {
-  cameraFaviconActive = true;
   updateCameraFavicon();
 }
 
 function stopCameraFaviconFlash() {
-  cameraFaviconActive = false;
   updateCameraFavicon();
 }
 
-stopCameraFaviconFlash();
+function freezeFaviconPulse() {
+  clearFaviconFlashTimer();
+  setFavicon(FAVICON_ON);
+}
+
+startCameraFaviconFlash();
 window.addEventListener('visibilitychange', updateCameraFavicon);
 window.addEventListener('focus', updateCameraFavicon);
-window.addEventListener('blur', updateCameraFavicon);
-window.addEventListener('pagehide', stopCameraFaviconFlash);
+window.addEventListener('pagehide', freezeFaviconPulse);
 
 // =============================================================
 // STATUS HUD
@@ -1004,6 +1088,29 @@ function shuffleArray(items) {
   return items;
 }
 
+function limitMediaEntries(items, limit) {
+  if (!Number.isFinite(limit) || items.length <= limit) return items;
+  return shuffleArray(items.slice()).slice(0, limit);
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  if (items.length === 0) return [];
+
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+
+  return results;
+}
+
 function getPanelSide(material, fallbackIndex = 0) {
   return material?.userData?.panelSide ?? (fallbackIndex % 4);
 }
@@ -1038,11 +1145,16 @@ function sampleVideoTextures(textures, maxCount = textures.length) {
 }
 
 function showPatternLabel() {
-  patternLabelEl.textContent = 'open hand';
+  if (patternLabelEl.textContent !== 'open hand') {
+    patternLabelEl.textContent = 'open hand';
+  }
 }
 
 function updateZoomInstruction(zoomValue) {
-  patternLabelEl.textContent = zoomValue > 0.35 ? 'open hand' : 'pinch hand';
+  const label = zoomValue > 0.35 ? 'open hand' : 'pinch hand';
+  if (patternLabelEl.textContent !== label) {
+    patternLabelEl.textContent = label;
+  }
 }
 
 // =============================================================
@@ -1117,7 +1229,7 @@ async function run() {
   const canvas   = document.getElementById('scene');
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: true,
+    antialias: RUNTIME_PROFILE.antialias,
     alpha: false,
     powerPreference: 'high-performance',
   });
@@ -1147,7 +1259,11 @@ async function run() {
   // ---------- load NASA images ----------
   status.render();
   loaderShow();
-  loaderLine('fetching NASA images (fast) + videos (background)...');
+  loaderLine(
+    RUNTIME_PROFILE.constrained
+      ? 'fetching NASA images (mobile profile)...'
+      : 'fetching NASA images (fast) + videos (background)...'
+  );
 
   let images;
   try {
@@ -1185,12 +1301,16 @@ async function run() {
   }).catch((e) => {
     console.warn('Local video pool failed (non-fatal):', e);
   });
-  loadNASAVideos().then((videos) => {
-    videos.forEach((v) => videoPool.push(v));
-    console.log(`[NASA] ${videos.length} videos now in rotation`);
-  }).catch((e) => {
-    console.warn('NASA video pool failed (non-fatal):', e);
-  });
+  if (RUNTIME_PROFILE.nasaVideoLimit > 0) {
+    loadNASAVideos().then((videos) => {
+      videos.forEach((v) => videoPool.push(v));
+      console.log(`[NASA] ${videos.length} videos now in rotation`);
+    }).catch((e) => {
+      console.warn('NASA video pool failed (non-fatal):', e);
+    });
+  } else {
+    console.log('[NASA] background video loading skipped for mobile performance');
+  }
 
   // ---------- tower container ----------
   const tower = new THREE.Group();
@@ -1330,7 +1450,9 @@ async function run() {
   // ---------- build initial pattern ----------
   buildFromPattern(PATTERN_ORDER[currentPatternIndex]);
   document.body.classList.add('experience-live');
-  if (!isReturningFromAbout) showExperienceManual({ force: true });
+  if (!isReturningFromAbout && !RUNTIME_PROFILE.constrained) {
+    showExperienceManual({ force: true });
+  }
 
   // ---------- input (head tracking + hand zoom) ----------
   function getZoomTravel(zoomValue) {
@@ -1364,8 +1486,18 @@ async function run() {
 
   // ---------- animation loop ----------
   const clock = new THREE.Clock();
+  const renderFrameIntervalMs = RUNTIME_PROFILE.renderFps > 0
+    ? 1000 / RUNTIME_PROFILE.renderFps
+    : 0;
+  let lastRenderFrameMs = -Infinity;
 
-  function animate() {
+  function animate(now = 0) {
+    requestAnimationFrame(animate);
+    if (renderFrameIntervalMs && now - lastRenderFrameMs < renderFrameIntervalMs) {
+      return;
+    }
+    lastRenderFrameMs = now;
+
     const dt  = Math.min(clock.getDelta(), 0.05);
     const t   = clock.elapsedTime;
     const pat = activePattern;
@@ -1419,10 +1551,8 @@ async function run() {
     }
 
     renderer.render(scene, camera);
-
-    requestAnimationFrame(animate);
   }
-  animate();
+  requestAnimationFrame(animate);
 }
 
 // =============================================================
@@ -1503,6 +1633,7 @@ function fixUrl(raw) {
 function promoteScienceImageUrl(raw) {
   const url = fixUrl(raw);
   if (!url) return null;
+  if (RUNTIME_PROFILE.preferSmallerImages) return url;
   return url.replace(/\?t=tn\d+/i, '');
 }
 
@@ -1517,8 +1648,10 @@ function applyTextureQuality(texture, { isVideo = false } = {}) {
     return texture;
   }
 
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = !RUNTIME_PROFILE.constrained;
+  texture.minFilter = RUNTIME_PROFILE.constrained
+    ? THREE.LinearFilter
+    : THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   return texture;
 }
@@ -1534,6 +1667,10 @@ function scoreImageUrlQuality(url = '') {
 }
 
 function pickPreferredImageAsset(files, fallbackUrl = null) {
+  if (RUNTIME_PROFILE.preferSmallerImages && fallbackUrl) {
+    return fallbackUrl.replace(/^http:\/\//, 'https://');
+  }
+
   const candidates = (files || [])
     .filter((file) => /\.(?:jpg|jpeg|png|webp)(?:$|\?)/i.test(file))
     .map((file) => ({
@@ -1710,6 +1847,46 @@ async function localVideoExists(url) {
   }
 }
 
+async function getLocalVideoByteSize(entry, manifestBase) {
+  const url = new URL(entry.file, manifestBase).toString();
+
+  try {
+    const res = await fetch(`${url}?t=${Date.now()}`, {
+      method: 'HEAD',
+      cache: 'no-store',
+    });
+    const byteSize = Number(res.headers.get('content-length'));
+    return {
+      ...entry,
+      byteSize: Number.isFinite(byteSize) && byteSize > 0 ? byteSize : Infinity,
+    };
+  } catch {
+    return { ...entry, byteSize: Infinity };
+  }
+}
+
+async function selectLocalVideoEntries(entries, manifestBase) {
+  const limit = RUNTIME_PROFILE.localVideoLimit;
+  if (!Number.isFinite(limit) || entries.length <= limit) return entries;
+
+  const measured = await mapWithConcurrency(
+    entries,
+    6,
+    (entry) => getLocalVideoByteSize(entry, manifestBase)
+  );
+
+  const selected = measured
+    .sort((a, b) => {
+      const aSize = Number.isFinite(a.byteSize) ? a.byteSize : Number.MAX_SAFE_INTEGER;
+      const bSize = Number.isFinite(b.byteSize) ? b.byteSize : Number.MAX_SAFE_INTEGER;
+      return aSize - bSize || a.file.localeCompare(b.file, undefined, { numeric: true });
+    })
+    .slice(0, limit);
+
+  console.log(`[local] using ${selected.length}/${entries.length} smallest videos for mobile Safari`);
+  return selected.map(({ byteSize, ...entry }) => entry);
+}
+
 async function probeNumberedLocalVideoEntries(manifestUrl) {
   const directoryUrl = new URL('./', new URL(manifestUrl, window.location.href));
   const candidates = Array.from(
@@ -1732,7 +1909,9 @@ function createVideoTexture(url, slabAspect, label = 'video', source = 'video') 
   video.muted = true;
   video.defaultMuted = true;
   video.playsInline = true;
-  video.preload = 'auto';
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.preload = RUNTIME_PROFILE.videoPreload;
   video.src = url;
 
   const texture = new THREE.VideoTexture(video);
@@ -1748,13 +1927,22 @@ function createVideoTexture(url, slabAspect, label = 'video', source = 'video') 
   video.addEventListener('loadedmetadata', () => {
     cropTextureToAspect(texture, slabAspect);
     if (Number.isFinite(video.duration) && video.duration > 1) {
-      video.currentTime = Math.random() * Math.max(0, video.duration - 1);
+      texture.userData.initialSeekTime = Math.random() * Math.max(0, video.duration - 1);
+      if (
+        !RUNTIME_PROFILE.constrained ||
+        (activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) > 0
+      ) {
+        seekVideoTextureOnFirstPlay(texture);
+      }
     }
   }, { once: true });
 
   video.addEventListener('canplay', () => {
-    if ((activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) > 0) {
-      video.play().catch(() => {});
+    if (
+      (activeVideoTextureCounts.get(getVideoTextureKey(texture)) || 0) > 0 &&
+      shouldPlayRuntimeVideos()
+    ) {
+      playVideoElement(video);
     }
   }, { once: true });
 
@@ -1824,18 +2012,22 @@ async function loadNASAImages() {
   // Deduplicate
   const seen   = new Set();
   const unique = allUrls.filter(({ url }) => { if (seen.has(url)) return false; seen.add(url); return true; });
-  loaderLine(`loading ${unique.length} image textures...`);
+  const selected = limitMediaEntries(unique, RUNTIME_PROFILE.imageTextureLimit);
+  if (selected.length < unique.length) {
+    loaderLine(`using ${selected.length}/${unique.length} image textures for mobile Safari`);
+  }
+  loaderLine(`loading ${selected.length} image textures...`);
 
   let loadedCount = 0;
-  const textures = await Promise.all(unique.map(({ url, title }, idx) =>
+  const textures = await mapWithConcurrency(selected, RUNTIME_PROFILE.imageConcurrency, ({ url, title }, idx) =>
     loadImageTexture(url)
       .then((tex) => {
         loadedCount++;
-        if (loadedCount % 10 === 0) loaderLine(`  loaded ${loadedCount}/${unique.length}`);
+        if (loadedCount % 10 === 0) loaderLine(`  loaded ${loadedCount}/${selected.length}`);
         return tex;
       })
       .catch(() => { console.warn(`[HST] img ${idx} failed: ${title}`); return null; })
-  ));
+  );
 
   return textures.filter(Boolean);
 }
@@ -1846,6 +2038,7 @@ async function loadLocalVideos() {
   const slabAspect = SLAB.width / SLAB.height;
   const manifestUrl = CONFIG.localMedia.manifestUrl;
   let manifestEntries = [];
+  const manifestBase = new URL(manifestUrl, window.location.href);
 
   try {
     const manifestRes = await fetch(`${manifestUrl}?t=${Date.now()}`, { cache: 'no-store' });
@@ -1859,10 +2052,14 @@ async function loadLocalVideos() {
     console.warn('[local] manifest load failed:', e.message);
   }
 
-  const [discoveredEntries, probedEntries] = await Promise.all([
-    discoverLocalVideoEntries(manifestUrl),
-    probeNumberedLocalVideoEntries(manifestUrl),
-  ]);
+  let discoveredEntries = [];
+  let probedEntries = [];
+  if (!(RUNTIME_PROFILE.constrained && manifestEntries.length > 0)) {
+    [discoveredEntries, probedEntries] = await Promise.all([
+      discoverLocalVideoEntries(manifestUrl),
+      probeNumberedLocalVideoEntries(manifestUrl),
+    ]);
+  }
   const entryMap = new Map();
   probedEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
   discoveredEntries.forEach((entry) => entryMap.set(entry.file.toLowerCase(), entry));
@@ -1870,9 +2067,9 @@ async function loadLocalVideos() {
   const entries = Array.from(entryMap.values());
   if (entries.length === 0) return [];
 
-  const manifestBase = new URL(manifestUrl, window.location.href);
+  const selectedEntries = await selectLocalVideoEntries(entries, manifestBase);
 
-  return entries.map(({ file, label }) => {
+  return selectedEntries.map(({ file, label }) => {
     const url = new URL(file, manifestBase).toString();
     return createVideoTexture(url, slabAspect, label, 'local');
   });
@@ -1896,8 +2093,9 @@ async function loadNASAVideosFallback() {
     return true;
   });
   const slabAspect = SLAB.width / SLAB.height;
+  const selected = limitMediaEntries(unique, RUNTIME_PROFILE.nasaVideoLimit);
 
-  return unique.map(({ url, title }) => createVideoTexture(url, slabAspect, title || url, 'nasa'));
+  return selected.map(({ url, title }) => createVideoTexture(url, slabAspect, title || url, 'nasa'));
 }
 
 async function resolveVideoUrls(query, count) {
@@ -1992,6 +2190,53 @@ async function searchImages(query, count) {
 let swapGeneration = 0;
 let activeVideoTextureCounts = new Map();
 let activeVideoTextureSideCounts = new Map();
+let activeVideoTextures = new Map();
+
+function shouldPlayRuntimeVideos() {
+  return typeof document === 'undefined' || document.visibilityState === 'visible';
+}
+
+function playVideoElement(video) {
+  const playPromise = video?.play?.();
+  if (playPromise?.catch) playPromise.catch(() => {});
+}
+
+function pauseVideoElement(video) {
+  video?.pause?.();
+}
+
+function seekVideoTextureOnFirstPlay(texture) {
+  const seekTime = texture?.userData?.initialSeekTime;
+  if (!Number.isFinite(seekTime)) return;
+
+  try {
+    texture.image.currentTime = seekTime;
+    delete texture.userData.initialSeekTime;
+  } catch {
+    // Some Safari builds reject seeks until the element has buffered a frame.
+  }
+}
+
+function syncActiveVideoPlayback() {
+  activeVideoTextures.forEach((texture) => {
+    if (shouldPlayRuntimeVideos()) {
+      seekVideoTextureOnFirstPlay(texture);
+      playVideoElement(texture.image);
+    } else {
+      pauseVideoElement(texture.image);
+    }
+  });
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', syncActiveVideoPlayback);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    activeVideoTextures.forEach((texture) => pauseVideoElement(texture.image));
+  });
+}
 
 function getVideoTextureKey(texture) {
   return texture?.userData?.contentKey || texture?.uuid || '';
@@ -2010,8 +2255,10 @@ function isLocalVideoTexture(texture) {
 }
 
 function resetActiveVideoTextureCounts() {
+  activeVideoTextures.forEach((texture) => pauseVideoElement(texture.image));
   activeVideoTextureCounts = new Map();
   activeVideoTextureSideCounts = new Map();
+  activeVideoTextures = new Map();
 }
 
 function getVideoTextureSideCount(texture, side) {
@@ -2044,12 +2291,15 @@ function countVideoTexture(texture, delta, side = null) {
 
   if (nextCount <= 0) {
     activeVideoTextureCounts.delete(key);
+    activeVideoTextures.delete(key);
     texture.image?.pause?.();
     return;
   }
   activeVideoTextureCounts.set(key, nextCount);
-  if (previousCount <= 0) {
-    texture.image?.play?.().catch(() => {});
+  activeVideoTextures.set(key, texture);
+  if (previousCount <= 0 && shouldPlayRuntimeVideos()) {
+    seekVideoTextureOnFirstPlay(texture);
+    playVideoElement(texture.image);
   }
 }
 
